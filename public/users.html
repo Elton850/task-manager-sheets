@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin • Usuários</title>
+  <link rel="stylesheet" href="/public/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">Task Manager</div>
+      <div class="sub" id="meLine">Carregando...</div>
+      <nav class="nav">
+        <a href="/app">Tasks</a>
+        <a href="/admin">Admin • Config</a>
+        <a class="active" href="/admin/users">Admin • Usuários</a>
+        <a href="#" id="btnLogout">Sair</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <div class="h1">Usuários</div>
+          <div class="sub">Criar/editar/inativar e resetar senha</div>
+        </div>
+        <div class="right">
+          <button class="btn" id="btnNew">+ Novo usuário</button>
+        </div>
+      </div>
+
+      <section class="card">
+        <div class="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th><th>Nome</th><th>Role</th><th>Área</th><th>Ativo</th><th>Excluir</th><th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tb"></tbody>
+          </table>
+        </div>
+        <div class="hint" id="hint"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal" id="modal">
+    <div class="box">
+      <div class="mhead">
+        <div class="mtitle" id="mTitle">Novo usuário</div>
+        <button class="btn ghost" id="mClose">Fechar</button>
+      </div>
+      <div class="mbody">
+        <div class="field span2"><label>Email</label><input id="mEmail" /></div>
+        <div class="field"><label>Role</label>
+          <select id="mRole">
+            <option>USER</option><option>LEADER</option><option>ADMIN</option>
+          </select>
+        </div>
+
+        <div class="field span2"><label>Nome</label><input id="mNome" /></div>
+        <div class="field"><label>Área</label><input id="mArea" placeholder="DP / RH / ..." /></div>
+
+        <div class="field"><label>Ativo</label>
+          <select id="mActive"><option value="true">Sim</option><option value="false">Não</option></select>
+        </div>
+        <div class="field"><label>Pode excluir</label>
+          <select id="mCanDelete"><option value="false">Não</option><option value="true">Sim</option></select>
+        </div>
+
+        <div class="field span3"><label>Senha (criar/reset)</label><input id="mPass" type="password" placeholder="Preencha para criar/resetar" /></div>
+      </div>
+      <div class="mfoot">
+        <div></div>
+        <div style="display:flex;gap:10px">
+          <button class="btn ghost" id="mCancel">Cancelar</button>
+          <button class="btn" id="mSave">Salvar</button>
+        </div>
+      </div>
+      <div class="hint" id="mHint" style="padding:0 14px 14px"></div>
+    </div>
+  </div>
+
+  <script src="/public/shared.js"></script>
+  <script src="/public/users-page.js"></script>
+</body>
+</html>

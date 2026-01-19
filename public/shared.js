@@ -1,6 +1,4 @@
-function getToken() {
-  return sessionStorage.getItem("token") || "";
-}
+function getToken() { return sessionStorage.getItem("token") || ""; }
 
 async function api(path, options = {}) {
   const token = getToken();
@@ -12,7 +10,10 @@ async function api(path, options = {}) {
       ...(options.headers || {}),
     },
   });
-  return res.json();
+
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch { return { ok: false, error: "Resposta inválida do servidor", raw: text.slice(0, 200) }; }
 }
 
 function logout() {
@@ -28,8 +29,23 @@ function pillClass(status) {
   return "";
 }
 
-function isoDate(iso){ return iso ? new Date(iso).toISOString().slice(0,10) : ""; }
-function isoLocalDT(iso){
+function fmtDateBR(iso){
+  if(!iso) return "";
+  const d = new Date(iso);
+  return new Intl.DateTimeFormat("pt-BR").format(d);
+}
+
+function fmtCompetencia(v){
+  const s = String(v || "").trim();
+  // aceita "2026-01" e mostra "01/2026"
+  const m = s.match(/^(\d{4})-(\d{2})$/);
+  if (m) return `${m[2]}/${m[1]}`;
+  return s; // se já vier "MM/AAAA"
+}
+
+function toISODateFromInput(v){ return v ? new Date(v).toISOString() : ""; }
+function isoToInputDate(iso){ return iso ? new Date(iso).toISOString().slice(0,10) : ""; }
+function isoToInputDT(iso){
   if(!iso) return "";
   const d = new Date(iso);
   const pad = (n)=> String(n).padStart(2,"0");
