@@ -86,6 +86,33 @@ function normYm(input: any): string {
   return s;
 }
 
+/* ===== Regras de status (Concluído x Concluído em Atraso) ===== */
+function toDateOrNull(v: any) {
+  if (!v) return null;
+  const d = new Date(String(v));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function isConcluidoStatus(s: any) {
+  const x = String(s || "").toLowerCase();
+  return x.includes("conclu");
+}
+
+function normalizeClear(patch: any) {
+  if (patch.realizado === "CLEAR") patch.realizado = "";
+}
+
+// Força status correto quando estiver concluído
+function applyDoneLateRule(finalStatus: any, finalPrazo: any, finalRealizado: any) {
+  if (!isConcluidoStatus(finalStatus)) return String(finalStatus || "");
+
+  const p = toDateOrNull(finalPrazo);
+  const r = toDateOrNull(finalRealizado);
+  if (!p || !r) return "Concluído"; // concluído sem datas válidas
+
+  return r > p ? "Concluído em Atraso" : "Concluído";
+}
+
 app.use("/public", express.static(path.join(process.cwd(), "public")));
 
 app.get("/", (_, res) => res.sendFile(path.join(process.cwd(), "public/login.html")));
@@ -282,10 +309,10 @@ app.get(
     let visible = all.filter((t) => {
       if (me.role === "ADMIN") return true;
       if (me.role === "LEADER") return String(t.area || "") === String(me.area || "");
-      return safeLowerEmail(t.responsavelEmail) === me.email;
+      return safeLowerEmail((t as any).responsavelEmail) === me.email;
     });
 
-    // tentar preencher responsavelNome sem quebrar o endpoint
+    // tenta preencher responsavelNome sem quebrar o endpoint
     try {
       const needs = visible.some((t) => !String((t as any).responsavelNome || "").trim());
       if (needs) {
@@ -301,7 +328,7 @@ app.get(
         });
       }
     } catch {
-      // se falhar, só devolve como veio (sem 500)
+      // não derruba
     }
 
     res.json({ ok: true, tasks: visible });
@@ -328,6 +355,13 @@ app.post(
 
     const competenciaYm = normYm(req.body.competenciaYm || req.body.competencia);
 
+    const prazo = req.body.prazo || "";
+    const realizado = req.body.realizado || "";
+
+    // aplica regra de status ao criar
+    const rawStatus = req.body.status || "";
+    const finalStatus = applyDoneLateRule(rawStatus, prazo, realizado);
+
     const task: any = {
       competenciaYm,
       competencia: competenciaYm,
@@ -337,9 +371,9 @@ app.post(
       responsavelEmail,
       responsavelNome: String(u?.nome || ""),
       area,
-      prazo: req.body.prazo || "",
-      realizado: req.body.realizado || "",
-      status: req.body.status || "",
+      prazo,
+      realizado,
+      status: finalStatus,
       observacoes: req.body.observacoes || "",
       createdAt: now,
       createdBy: me.email,
@@ -366,7 +400,7 @@ app.post(
     const cur = await getTaskByIdCached(id);
     if (!cur) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
 
-    if (me.role === "LEADER" && String(cur.area || "") !== String(me.area || "")) {
+    if (me.role === "LEADER" && String((cur as any).area || "") !== String(me.area || "")) {
       return res.status(403).json({ ok: false, error: "FORBIDDEN" });
     }
 
@@ -412,10 +446,6 @@ app.put(
     const current = await getTaskByIdCached(id);
     if (!current) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
 
-    const normalizeClear = (patch: any) => {
-      if (patch.realizado === "CLEAR") patch.realizado = "";
-    };
-
     // USER: status/realizado/observacoes apenas
     if (me.role === "USER") {
       if (safeLowerEmail((current as any).responsavelEmail) !== me.email) {
@@ -432,6 +462,13 @@ app.put(
       }
 
       normalizeClear(patch);
+
+      // ===== aplica regra concluído x concluído em atraso =====
+      const finalPrazo = (current as any).prazo || "";
+      const finalRealizado = patch.realizado !== undefined ? patch.realizado : (current as any).realizado || "";
+      const finalStatusRaw = patch.status !== undefined ? patch.status : (current as any).status || "";
+      patch.status = applyDoneLateRule(finalStatusRaw, finalPrazo, finalRealizado);
+
       const updated = await sheets.updateTask(id, patch);
       bustTasksCache();
       return res.json({ ok: true, task: updated });
@@ -463,6 +500,12 @@ app.put(
       return res.status(403).json({ ok: false, error: "FORBIDDEN" });
     }
 
+    // ===== aplica regra concluído x concluído em atraso =====
+    const finalPrazo = patch.prazo !== undefined ? patch.prazo : (current as any).prazo || "";
+    const finalRealizado = patch.realizado !== undefined ? patch.realizado : (current as any).realizado || "";
+    const finalStatusRaw = patch.status !== undefined ? patch.status : (current as any).status || "";
+    patch.status = applyDoneLateRule(finalStatusRaw, finalPrazo, finalRealizado);
+
     const updated = await sheets.updateTask(id, patch);
     bustTasksCache();
     res.json({ ok: true, task: updated });
@@ -487,7 +530,7 @@ app.delete(
   })
 );
 
-/* handler de erro (para não “sumir” o 500) */
+/* handler de erro */
 app.use((err: any, _req: any, res: any, _next: any) => {
   console.error("SERVER_ERROR:", err);
   res.status(500).json({ ok: false, error: err?.message || "SERVER_ERROR" });
