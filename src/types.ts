@@ -13,6 +13,7 @@ export type UserRow = {
 export type TaskRow = {
   id: string;
   competencia: string;
+  competenciaYm: string;
   recorrencia: string;
   tipo: string;
   atividade: string;

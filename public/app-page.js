@@ -22,37 +22,30 @@ function fillSelect(el, items, { empty = null } = {}) {
   });
 }
 
-function fillUsers(el, list) {
+function fillUsersSelect(el, list, { empty = null } = {}) {
   el.innerHTML = "";
+  if (empty !== null) {
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = empty;
+    el.appendChild(o);
+  }
   (list || []).forEach((u) => {
     const o = document.createElement("option");
     o.value = u.email;
-    o.textContent = `${u.nome || u.email} • ${u.area || "-"}`;
+    o.textContent = `${u.nome || u.email}`;
     el.appendChild(o);
   });
 }
 
-/* =========================
-   Date helpers (filters/KPI)
-========================= */
-function startOfDay(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-function endOfDay(d) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
-}
-function parseISO(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? null : d;
-}
+/* date helpers */
+function startOfDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
+function endOfDay(d) { const x = new Date(d); x.setHours(23,59,59,999); return x; }
+function parseISO(iso) { if(!iso) return null; const d = new Date(iso); return isNaN(d.getTime()) ? null : d; }
 
 function applyFilters(list) {
   const status = ($("fStatus").value || "").trim();
+  const resp = ($("fResp")?.value || "").trim();
   const fromStr = $("fFrom").value;
   const toStr = $("fTo").value;
 
@@ -61,6 +54,7 @@ function applyFilters(list) {
 
   return (list || []).filter((t) => {
     if (status && String(t.status || "") !== status) return false;
+    if (resp && String(t.responsavelEmail || "").toLowerCase() !== resp.toLowerCase()) return false;
 
     const p = parseISO(t.prazo);
     if (from && (!p || p < from)) return false;
@@ -70,14 +64,12 @@ function applyFilters(list) {
   });
 }
 
-function findUser(email) {
-  const e = String(email || "").toLowerCase();
-  return users.find((u) => String(u.email || "").toLowerCase() === e) || null;
+function isDoneTask(t) {
+  const s = String(t.status || "").toLowerCase();
+  return s.includes("conclu");
 }
 
-/* =========================
-   Competência (mês/ano)
-========================= */
+/* Competência selects */
 function setupCompetenciaSelects() {
   const months = ["01","02","03","04","05","06","07","08","09","10","11","12"];
   const monthNames = months.map((mm, i) =>
@@ -111,25 +103,33 @@ function setCompetenciaDefaultToday() {
 }
 
 function setCompetenciaFromTask(t) {
-  const ym = String(t.competenciaYm || "").trim();
-  if (ym.match(/^\d{4}-\d{2}$/)) {
+  const ym = String(t.competenciaYm || t.competencia || "").trim();
+  if (ym.match(/^\d{4}-\d{1,2}$/)) {
     $("mCompAno").value = ym.slice(0, 4);
-    $("mCompMes").value = ym.slice(5, 7);
-    return;
-  }
-  // fallback: se ainda existir competencia antigo "YYYY-MM"
-  const old = String(t.competencia || "").trim();
-  if (old.match(/^\d{4}-\d{2}$/)) {
-    $("mCompAno").value = old.slice(0, 4);
-    $("mCompMes").value = old.slice(5, 7);
+    $("mCompMes").value = String(Number(ym.slice(5))).padStart(2, "0");
   } else {
     setCompetenciaDefaultToday();
   }
 }
 
-/* =========================
-   Bootstrap
-========================= */
+/* Optimistic helpers */
+function upsertLocalTask(task) {
+  if (!task || !task.id) return;
+  const i = tasks.findIndex((x) => x.id === task.id);
+  if (i >= 0) tasks[i] = task;
+  else tasks.unshift(task);
+}
+function removeLocalTask(id) {
+  tasks = tasks.filter((t) => t.id !== id);
+}
+function renderFromLocal() {
+  const filtered = applyFilters(tasks);
+  renderKPIs(filtered);
+  renderTable(filtered);
+  $("hint").textContent = `Mostrando: ${filtered.length} de ${tasks.length}`;
+}
+
+/* Bootstrap */
 async function bootstrap() {
   const meRes = await api("/api/me");
   if (!meRes || !meRes.ok || !meRes.user) return logout();
@@ -145,39 +145,42 @@ async function bootstrap() {
     if (u) u.style.display = "block";
   }
 
+  if (me.role === "USER") {
+    const btnNew = document.getElementById("btnNew");
+    if (btnNew) btnNew.style.display = "none";
+  }
+
   const [lres, ures] = await Promise.all([api("/api/lookups"), api("/api/users")]);
   lookups = (lres && lres.ok && lres.lookups) ? lres.lookups : {};
   users = (ures && ures.ok && ures.users) ? ures.users : [];
 
-  // Filtros: default = HOJE (prazo)
+  // filtros default = hoje
   const today = new Date();
   $("fFrom").value = today.toISOString().slice(0, 10);
   $("fTo").value = today.toISOString().slice(0, 10);
 
   fillSelect($("fStatus"), lookups.STATUS || [], { empty: "Todos" });
 
-  // selects do modal
+  // filtro responsável (LEADER/ADMIN)
+  if ($("fResp")) {
+    if (me.role === "USER") {
+      $("fResp").style.display = "none";
+    } else {
+      fillUsersSelect($("fResp"), users, { empty: "Todos responsáveis" });
+    }
+  }
+
+  // modal selects
   setupCompetenciaSelects();
   fillSelect($("mRecorrencia"), lookups.RECORRENCIA || []);
   fillSelect($("mTipo"), lookups.TIPO || []);
   fillSelect($("mStatus"), lookups.STATUS || []);
-  fillUsers($("mResp"), users);
-
-  // ao trocar responsável, ajustar área automaticamente (se você quiser que área acompanhe)
-  $("mResp").onchange = () => {
-    const u = findUser($("mResp").value);
-    if (u && $("mAreaHidden")) $("mAreaHidden").value = u.area || "";
-  };
+  fillUsersSelect($("mResp"), users);
 
   // eventos
   $("btnNew").onclick = () => openModalNew();
   $("btnRefresh").onclick = () => loadTasks();
-  $("btnFilter").onclick = () => {
-    const filtered = applyFilters(tasks);
-    renderKPIs(filtered);
-    renderTable(filtered);
-    $("hint").textContent = `Mostrando: ${filtered.length} de ${tasks.length}`;
-  };
+  $("btnFilter").onclick = () => renderFromLocal();
 
   $("mClose").onclick = () => closeModal();
   $("mCancel").onclick = () => closeModal();
@@ -187,23 +190,14 @@ async function bootstrap() {
   await loadTasks();
 }
 
-/* =========================
-   Load + Render
-========================= */
+/* load + render */
 async function loadTasks() {
   $("hint").textContent = "Carregando...";
   const res = await api("/api/tasks");
-  if (!res.ok) {
-    $("hint").textContent = res.error || "Erro";
-    return;
-  }
+  if (!res.ok) { $("hint").textContent = res.error || "Erro"; return; }
 
   tasks = res.tasks || [];
-  const filtered = applyFilters(tasks);
-
-  renderKPIs(filtered);
-  renderTable(filtered);
-  $("hint").textContent = `Mostrando: ${filtered.length} de ${tasks.length}`;
+  renderFromLocal();
 }
 
 function renderKPIs(list) {
@@ -218,13 +212,10 @@ function renderKPIs(list) {
     return s.includes("conclu") && !s.includes("atraso");
   }).length;
 
-  // atraso por DATA: prazo < agora e não concluído
   const now = new Date();
   const late = list.filter((t) => {
     const prazo = parseISO(t.prazo);
-    const s = String(t.status || "").toLowerCase();
-    const isDone = s.includes("conclu");
-    return prazo && prazo < now && !isDone;
+    return prazo && prazo < now && !isDoneTask(t);
   }).length;
 
   $("kTotal").textContent = total;
@@ -240,7 +231,7 @@ function renderTable(list) {
   (list || []).forEach((t) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${compLabel(t.competenciaYm || t.competencia)}</td>
+      <td>${fmtCompetencia(t.competenciaYm || t.competencia)}</td>
       <td>${t.recorrencia || ""}</td>
       <td>${t.tipo || ""}</td>
       <td>${t.atividade || ""}</td>
@@ -255,43 +246,96 @@ function renderTable(list) {
     const row = document.createElement("div");
     row.className = "rowActions";
 
-    const b1 = document.createElement("button");
-    b1.className = "sm";
-    b1.textContent = "Editar";
-    b1.onclick = () => openModalEdit(t.id);
+    // concluir / reabrir
+    const bDone = document.createElement("button");
+    bDone.className = "sm";
+    bDone.title = isDoneTask(t) ? "Reabrir" : "Concluir";
+    bDone.textContent = isDoneTask(t) ? "↩" : "✅";
+    bDone.onclick = async () => toggleDone(t);
+    row.appendChild(bDone);
 
-    const b2 = document.createElement("button");
-    b2.className = "sm";
-    b2.textContent = "Duplicar";
-    b2.onclick = async () => {
+    if (me.role === "USER") {
+      const bView = document.createElement("button");
+      bView.className = "sm";
+      bView.title = "Visualizar";
+      bView.textContent = "👁";
+      bView.onclick = () => openModalView(t.id);
+      row.appendChild(bView);
+
+      td.appendChild(row);
+      tb.appendChild(tr);
+      return;
+    }
+
+    const bEdit = document.createElement("button");
+    bEdit.className = "sm";
+    bEdit.title = "Editar";
+    bEdit.textContent = "✏️";
+    bEdit.onclick = () => openModalEdit(t.id);
+    row.appendChild(bEdit);
+
+    const bDup = document.createElement("button");
+    bDup.className = "sm";
+    bDup.title = "Duplicar";
+    bDup.textContent = "⧉";
+    bDup.onclick = async () => {
       const r = await api(`/api/tasks/${t.id}/duplicate`, { method: "POST" });
-      if (!r.ok) alert(r.error || "Erro");
-      else loadTasks();
+      if (!r.ok) return alert(r.error || "Erro");
+      if (r.task) tasks.unshift(r.task);
+      renderFromLocal();
     };
+    row.appendChild(bDup);
 
-    const b3 = document.createElement("button");
-    b3.className = "sm danger";
-    b3.textContent = "Excluir";
-    b3.onclick = async () => {
+    const bDel = document.createElement("button");
+    bDel.className = "sm danger";
+    bDel.title = "Excluir";
+    bDel.textContent = "🗑";
+    bDel.onclick = async () => {
       if (!confirm("Excluir task?")) return;
       const r = await api(`/api/tasks/${t.id}`, { method: "DELETE" });
-      if (!r.ok) alert(r.error || "Erro");
-      else loadTasks();
+      if (!r.ok) return alert(r.error || "Erro");
+      removeLocalTask(t.id);
+      renderFromLocal();
     };
+    row.appendChild(bDel);
 
-    row.appendChild(b1);
-    row.appendChild(b2);
-    row.appendChild(b3);
     td.appendChild(row);
-
     tb.appendChild(tr);
   });
 }
 
-/* =========================
-   Modal
-========================= */
+async function toggleDone(t) {
+  const done = isDoneTask(t);
+  const patch = done
+    ? { status: "Em Andamento", realizado: "CLEAR" } // limpa realizado
+    : { status: "Concluído", realizado: new Date().toISOString() };
+
+  // otimista
+  const before = { ...t };
+  if (done) {
+    t.status = "Em Andamento";
+    t.realizado = "";
+  } else {
+    t.status = "Concluído";
+    t.realizado = patch.realizado;
+  }
+  renderFromLocal();
+
+  const r = await api(`/api/tasks/${t.id}`, { method: "PUT", body: JSON.stringify(patch) });
+  if (!r.ok) {
+    // rollback
+    upsertLocalTask(before);
+    renderFromLocal();
+    return alert(r.error || "Erro");
+  }
+  if (r.task) upsertLocalTask(r.task);
+  renderFromLocal();
+}
+
+/* modal */
 function openModalNew() {
+  if (me.role === "USER") return;
+
   editingId = null;
   $("mTitle").textContent = "Nova task";
   $("mHint").textContent = "";
@@ -302,20 +346,20 @@ function openModalNew() {
   $("mTipo").value = (lookups.TIPO || [])[0] || "";
   $("mStatus").value = (lookups.STATUS || [])[0] || "";
 
-  const found = users.find((u) => u.email === me.email);
-  $("mResp").value = found ? found.email : users[0]?.email || "";
+  $("mResp").value = me.email;
 
   $("mAtividade").value = "";
   $("mPrazo").value = "";
   $("mRealizado").value = "";
   $("mObs").value = "";
 
-  $("mPrazo").disabled = me.role === "USER";
-
+  setModalEditable(true);
   $("modal").classList.add("show");
 }
 
 function openModalEdit(id) {
+  if (me.role === "USER") return;
+
   const t = tasks.find((x) => x.id === id);
   if (!t) return;
 
@@ -335,9 +379,44 @@ function openModalEdit(id) {
   $("mRealizado").value = t.realizado ? isoToInputDT(t.realizado) : "";
   $("mObs").value = t.observacoes || "";
 
-  $("mPrazo").disabled = me.role === "USER";
-
+  setModalEditable(true);
   $("modal").classList.add("show");
+}
+
+function openModalView(id) {
+  const t = tasks.find((x) => x.id === id);
+  if (!t) return;
+
+  editingId = null;
+  $("mTitle").textContent = "Visualizar task";
+  $("mHint").textContent = "";
+
+  setCompetenciaFromTask(t);
+
+  $("mRecorrencia").value = t.recorrencia || "";
+  $("mTipo").value = t.tipo || "";
+  $("mStatus").value = t.status || "";
+  $("mResp").value = t.responsavelEmail || "";
+
+  $("mAtividade").value = t.atividade || "";
+  $("mPrazo").value = t.prazo ? new Date(t.prazo).toISOString().slice(0, 10) : "";
+  $("mRealizado").value = t.realizado ? isoToInputDT(t.realizado) : "";
+  $("mObs").value = t.observacoes || "";
+
+  setModalEditable(false);
+  $("modal").classList.add("show");
+}
+
+function setModalEditable(on) {
+  const ids = ["mCompMes","mCompAno","mRecorrencia","mTipo","mStatus","mResp","mAtividade","mPrazo","mRealizado","mObs"];
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !on;
+  });
+  const save = document.getElementById("mSave");
+  const clear = document.getElementById("mClearReal");
+  if (save) save.style.display = on ? "inline-block" : "none";
+  if (clear) clear.style.display = on ? "inline-block" : "none";
 }
 
 function closeModal() {
@@ -345,8 +424,9 @@ function closeModal() {
 }
 
 async function saveTask() {
-  $("mHint").textContent = "Salvando...";
+  if (me.role === "USER") return;
 
+  $("mHint").textContent = "Salvando...";
   const competenciaYm = `${$("mCompAno").value}-${$("mCompMes").value}`;
 
   const payload = {
@@ -365,31 +445,30 @@ async function saveTask() {
     ? await api(`/api/tasks/${editingId}`, { method: "PUT", body: JSON.stringify(payload) })
     : await api(`/api/tasks`, { method: "POST", body: JSON.stringify(payload) });
 
-  if (!res.ok) {
-    $("mHint").textContent = res.error || "Erro";
-    return;
-  }
+  if (!res.ok) { $("mHint").textContent = res.error || "Erro"; return; }
 
   closeModal();
-  loadTasks();
+  if (res.task) upsertLocalTask(res.task);
+  else await loadTasks();
+  renderFromLocal();
 }
 
 async function clearRealizado() {
-  if (!editingId) {
-    $("mRealizado").value = "";
-    return;
-  }
+  if (me.role === "USER") return;
+
+  if (!editingId) { $("mRealizado").value = ""; return; }
 
   const res = await api(`/api/tasks/${editingId}`, {
     method: "PUT",
     body: JSON.stringify({ realizado: "CLEAR" }),
   });
 
-  if (!res.ok) alert(res.error || "Erro");
-  else {
-    closeModal();
-    loadTasks();
-  }
+  if (!res.ok) return alert(res.error || "Erro");
+
+  closeModal();
+  if (res.task) upsertLocalTask(res.task);
+  else await loadTasks();
+  renderFromLocal();
 }
 
 document.addEventListener("DOMContentLoaded", bootstrap);

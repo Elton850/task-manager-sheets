@@ -49,21 +49,61 @@ function isoToInputDT(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// "2026-02" -> "fevereiro de 2026"
-function compLabel(ym) {
-  if (!ym) return "";
-  const m = String(ym).trim().match(/^(\d{4})-(\d{2})$/);
-  if (!m) return String(ym);
-  const year = Number(m[1]);
-  const month = Number(m[2]) - 1;
-  const d = new Date(year, month, 1);
-  return new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(d);
-}
+/* ========= Competência robusta =========
+   Aceita: YYYY-MM, YYYY-M, MM/YYYY, YYYY/MM, YYYY-MM-DD, e retorna MM/YYYY
+*/
+function fmtCompetencia(input) {
+  const s = String(input || "").trim();
+  if (!s) return "";
 
-// mantém compatibilidade se ainda houver "competencia" antigo
-function fmtCompetencia(v) {
-  const s = String(v || "").trim();
-  const m = s.match(/^(\d{4})-(\d{2})$/);
-  if (m) return `${m[2]}/${m[1]}`;
+  // YYYY-MM-DD (pega só ano/mes)
+  let m = s.match(/^(\d{4})-(\d{1,2})-\d{1,2}/);
+  if (m) {
+    const yy = m[1];
+    const mm = String(Number(m[2])).padStart(2, "0");
+    return `${mm}/${yy}`;
+  }
+
+  // YYYY-MM ou YYYY-M
+  m = s.match(/^(\d{4})-(\d{1,2})$/);
+  if (m) {
+    const yy = m[1];
+    const mm = String(Number(m[2])).padStart(2, "0");
+    return `${mm}/${yy}`;
+  }
+
+  // YYYY/MM ou YYYY/M
+  m = s.match(/^(\d{4})\/(\d{1,2})$/);
+  if (m) {
+    const yy = m[1];
+    const mm = String(Number(m[2])).padStart(2, "0");
+    return `${mm}/${yy}`;
+  }
+
+  // MM/YYYY ou M/YYYY
+  m = s.match(/^(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const mm = String(Number(m[1])).padStart(2, "0");
+    const yy = m[2];
+    return `${mm}/${yy}`;
+  }
+
+  // tenta converter "Fevereiro de 2026" -> 02/2026
+  // (funciona mesmo se vier "fevereiro 2026")
+  const meses = {
+    janeiro: "01", fevereiro: "02", marco: "03", março: "03", abril: "04", maio: "05", junho: "06",
+    julho: "07", agosto: "08", setembro: "09", outubro: "10", novembro: "11", dezembro: "12",
+  };
+  const lower = s.toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // remove acentos
+
+  const y = lower.match(/(\d{4})/);
+  if (y) {
+    for (const nome in meses) {
+      if (lower.includes(nome)) return `${meses[nome]}/${y[1]}`;
+    }
+  }
+
+  // se não casar, devolve como está (pelo menos não quebra)
   return s;
 }
