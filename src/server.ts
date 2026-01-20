@@ -42,18 +42,28 @@ async function getUserByEmailSafe(email: string) {
   }
 }
 
-/* ===== Cache de tasks (TTL curto) ===== */
+/* ===== Cache de tasks (TTL curto) + índice por ID ===== */
 let tasksCache: { at: number; data: TaskRow[] } | null = null;
+let tasksIndex: Map<string, TaskRow> | null = null;
 
 async function listTasksCached() {
   const ttlMs = 8000;
   if (tasksCache && Date.now() - tasksCache.at < ttlMs) return tasksCache.data;
   const data = (await sheets.listTasks()) as TaskRow[];
   tasksCache = { at: Date.now(), data };
+  tasksIndex = null;
   return data;
 }
+
+async function getTaskByIdCached(id: string) {
+  const all = await listTasksCached();
+  if (!tasksIndex) tasksIndex = new Map(all.map((t) => [String(t.id), t]));
+  return tasksIndex.get(String(id)) || null;
+}
+
 function bustTasksCache() {
   tasksCache = null;
+  tasksIndex = null;
 }
 
 /* ===== Competência: normaliza para AAAA-MM ===== */
@@ -61,23 +71,19 @@ function normYm(input: any): string {
   const s = String(input || "").trim();
   if (!s) return "";
 
-  // AAAA-MM-DD -> AAAA-MM
   let m = s.match(/^(\d{4})-(\d{1,2})-\d{1,2}/);
   if (m) return `${m[1]}-${String(Number(m[2])).padStart(2, "0")}`;
 
-  // AAAA-M / AAAA-MM
   m = s.match(/^(\d{4})-(\d{1,2})$/);
   if (m) return `${m[1]}-${String(Number(m[2])).padStart(2, "0")}`;
 
-  // AAAA/M
   m = s.match(/^(\d{4})\/(\d{1,2})$/);
   if (m) return `${m[1]}-${String(Number(m[2])).padStart(2, "0")}`;
 
-  // M/AAAA ou MM/AAAA
   m = s.match(/^(\d{1,2})\/(\d{4})$/);
   if (m) return `${m[2]}-${String(Number(m[1])).padStart(2, "0")}`;
 
-  return s; // fallback (não quebra)
+  return s;
 }
 
 app.use("/public", express.static(path.join(process.cwd(), "public")));
@@ -113,15 +119,15 @@ app.get(
   a(async (req: any, res: any) => {
     const me = req.user as AuthedUser;
     const all = await sheets.listUsers();
-    const active = all.filter((u) => String(u.active).toUpperCase() === "TRUE" || u.active === true);
+    const active = all.filter((u: any) => String(u.active).toUpperCase() === "TRUE" || u.active === true);
 
     let visible = active;
-    if (me.role === "LEADER") visible = active.filter((u) => String(u.area || "") === String(me.area || ""));
-    if (me.role === "USER") visible = active.filter((u) => safeLowerEmail(u.email) === me.email);
+    if (me.role === "LEADER") visible = active.filter((u: any) => String(u.area || "") === String(me.area || ""));
+    if (me.role === "USER") visible = active.filter((u: any) => safeLowerEmail(u.email) === me.email);
 
     res.json({
       ok: true,
-      users: visible.map((u) => ({
+      users: visible.map((u: any) => ({
         email: safeLowerEmail(u.email),
         nome: String(u.nome || ""),
         role: String(u.role || "USER").toUpperCase(),
@@ -142,7 +148,7 @@ app.get(
     const all = await sheets.listUsers();
     res.json({
       ok: true,
-      users: all.map((u) => ({
+      users: all.map((u: any) => ({
         email: safeLowerEmail(u.email),
         nome: String(u.nome || ""),
         role: String(u.role || "USER").toUpperCase(),
@@ -273,11 +279,30 @@ app.get(
     const me = req.user as AuthedUser;
     const all = await listTasksCached();
 
-    const visible = all.filter((t) => {
+    let visible = all.filter((t) => {
       if (me.role === "ADMIN") return true;
       if (me.role === "LEADER") return String(t.area || "") === String(me.area || "");
       return safeLowerEmail(t.responsavelEmail) === me.email;
     });
+
+    // tentar preencher responsavelNome sem quebrar o endpoint
+    try {
+      const needs = visible.some((t) => !String((t as any).responsavelNome || "").trim());
+      if (needs) {
+        const uAll = await sheets.listUsers();
+        const map = new Map<string, string>(
+          uAll.map((u: any) => [safeLowerEmail(u.email), String(u.nome || "").trim()])
+        );
+
+        visible = visible.map((t: any) => {
+          const email = safeLowerEmail(t.responsavelEmail);
+          const nome = String(t.responsavelNome || "").trim() || map.get(email) || "";
+          return { ...t, responsavelEmail: email, responsavelNome: nome || email };
+        });
+      }
+    } catch {
+      // se falhar, só devolve como veio (sem 500)
+    }
 
     res.json({ ok: true, tasks: visible });
   })
@@ -338,33 +363,31 @@ app.post(
     if (me.role === "USER") return res.status(403).json({ ok: false, error: "FORBIDDEN" });
 
     const id = mustString(req.params.id, "id");
-    const all = await listTasksCached();
-    const cur = all.find((t) => t.id === id);
+    const cur = await getTaskByIdCached(id);
     if (!cur) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
 
     if (me.role === "LEADER" && String(cur.area || "") !== String(me.area || "")) {
       return res.status(403).json({ ok: false, error: "FORBIDDEN" });
     }
 
-    const newEmail = safeLowerEmail(cur.responsavelEmail);
+    const newEmail = safeLowerEmail((cur as any).responsavelEmail);
     const u = await getUserByEmailSafe(newEmail);
+    const competenciaYm = normYm((cur as any).competenciaYm || (cur as any).competencia);
 
     const now = nowIso();
-    const competenciaYm = normYm(cur.competenciaYm || cur.competencia);
-
     const copy: any = {
       competenciaYm,
       competencia: competenciaYm,
-      recorrencia: cur.recorrencia || "",
-      tipo: cur.tipo || "",
-      atividade: cur.atividade || "",
+      recorrencia: (cur as any).recorrencia || "",
+      tipo: (cur as any).tipo || "",
+      atividade: (cur as any).atividade || "",
       responsavelEmail: newEmail,
-      responsavelNome: String(u?.nome || cur.responsavelNome || ""),
-      area: String(u?.area || cur.area || me.area || ""),
-      prazo: cur.prazo || "",
+      responsavelNome: String(u?.nome || (cur as any).responsavelNome || ""),
+      area: String(u?.area || (cur as any).area || me.area || ""),
+      prazo: (cur as any).prazo || "",
       realizado: "",
       status: "Em Andamento",
-      observacoes: cur.observacoes || "",
+      observacoes: (cur as any).observacoes || "",
       createdAt: now,
       createdBy: me.email,
       updatedAt: now,
@@ -386,32 +409,25 @@ app.put(
     const me = req.user as AuthedUser;
     const id = mustString(req.params.id, "id");
 
-    const all = await listTasksCached();
-    const current = all.find((t) => t.id === id);
+    const current = await getTaskByIdCached(id);
     if (!current) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
 
     const normalizeClear = (patch: any) => {
       if (patch.realizado === "CLEAR") patch.realizado = "";
     };
 
-    // USER: pode concluir/reabrir + editar observacoes (somente)
+    // USER: status/realizado/observacoes apenas
     if (me.role === "USER") {
-      if (safeLowerEmail(current.responsavelEmail) !== me.email) {
+      if (safeLowerEmail((current as any).responsavelEmail) !== me.email) {
         return res.status(403).json({ ok: false, error: "FORBIDDEN" });
       }
 
       const patch: any = { updatedAt: nowIso(), updatedBy: me.email };
-
       if (req.body.status !== undefined) patch.status = req.body.status;
       if (req.body.realizado !== undefined) patch.realizado = req.body.realizado;
       if (req.body.observacoes !== undefined) patch.observacoes = String(req.body.observacoes || "");
 
-      // precisa ter ao menos um campo permitido
-      if (
-        patch.status === undefined &&
-        patch.realizado === undefined &&
-        patch.observacoes === undefined
-      ) {
+      if (patch.status === undefined && patch.realizado === undefined && patch.observacoes === undefined) {
         return res.status(403).json({ ok: false, error: "Sem alterações permitidas." });
       }
 
@@ -425,7 +441,6 @@ app.put(
     const patch: any = { ...req.body, updatedAt: nowIso(), updatedBy: me.email };
     normalizeClear(patch);
 
-    // normaliza competência se veio
     if (patch.competenciaYm || patch.competencia) {
       const ym = normYm(patch.competenciaYm || patch.competencia);
       patch.competenciaYm = ym;
@@ -437,14 +452,14 @@ app.put(
       const u = await getUserByEmailSafe(newEmail);
       patch.responsavelEmail = newEmail;
       patch.responsavelNome = String(u?.nome || "");
-      patch.area = String(u?.area || current.area || "");
+      patch.area = String(u?.area || (current as any).area || "");
 
       if (me.role === "LEADER" && String(patch.area || "") !== String(me.area || "")) {
         return res.status(403).json({ ok: false, error: "Leader não pode reatribuir para fora da área." });
       }
     }
 
-    if (!canEditTask(me, current, patch)) {
+    if (!canEditTask(me, current as any, patch)) {
       return res.status(403).json({ ok: false, error: "FORBIDDEN" });
     }
 
@@ -461,11 +476,10 @@ app.delete(
     const me = req.user as AuthedUser;
     const id = mustString(req.params.id, "id");
 
-    const all = await listTasksCached();
-    const current = all.find((t) => t.id === id);
+    const current = await getTaskByIdCached(id);
     if (!current) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
 
-    if (!canDeleteTask(me, current)) return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+    if (!canDeleteTask(me, current as any)) return res.status(403).json({ ok: false, error: "FORBIDDEN" });
 
     const deleted = await sheets.softDeleteTask(id, me.email);
     bustTasksCache();
@@ -473,6 +487,7 @@ app.delete(
   })
 );
 
+/* handler de erro (para não “sumir” o 500) */
 app.use((err: any, _req: any, res: any, _next: any) => {
   console.error("SERVER_ERROR:", err);
   res.status(500).json({ ok: false, error: err?.message || "SERVER_ERROR" });

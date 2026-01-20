@@ -70,6 +70,19 @@ function isDoneTask(t) {
   return s.includes("conclu");
 }
 
+function isDoneLate(t) {
+  const prazo = parseISO(t.prazo);
+  const real = parseISO(t.realizado);
+  if (!prazo || !real) return false;
+  return isDoneTask(t) && real > prazo;
+}
+
+function isOpenLate(t) {
+  const prazo = parseISO(t.prazo);
+  if (!prazo) return false;
+  return !isDoneTask(t) && prazo < new Date();
+}
+
 /* Competência selects */
 function setupCompetenciaSelects() {
   const months = ["01","02","03","04","05","06","07","08","09","10","11","12"];
@@ -123,7 +136,10 @@ function removeLocalTask(id) {
 }
 function renderFromLocal() {
   const filtered = applyFilters(tasks);
-  renderKPIs(filtered);
+
+  renderKPIs(filtered);        // cards “normais” seguem filtro
+  renderLateGlobal(tasks);     // Em Atraso GLOBAL (ignora filtros)
+
   renderTable(filtered);
   $("hint").textContent = `Mostrando: ${filtered.length} de ${tasks.length}`;
 }
@@ -194,6 +210,7 @@ async function loadTasks() {
   renderFromLocal();
 }
 
+/* KPIs: seguem filtro */
 function renderKPIs(list) {
   const total = list.length;
 
@@ -201,32 +218,21 @@ function renderKPIs(list) {
     String(t.status || "").toLowerCase().includes("andamento")
   ).length;
 
-  const done = list.filter((t) => {
-    const s = String(t.status || "").toLowerCase();
-    return s.includes("conclu") && !s.includes("atraso");
-  }).length;
+  const doneLate = list.filter((t) => isDoneLate(t)).length;
 
-  const now = new Date();
-  const late = list.filter((t) => {
-    const prazo = parseISO(t.prazo);
-    return prazo && prazo < now && !isDoneTask(t);
-  }).length;
+  // Concluídas SEM atraso (pra não contar duas vezes)
+  const done = list.filter((t) => isDoneTask(t) && !isDoneLate(t)).length;
 
   $("kTotal").textContent = total;
   $("kAnd").textContent = and;
   $("kDone").textContent = done;
-  $("kLate").textContent = late;
+  if ($("kDoneLate")) $("kDoneLate").textContent = doneLate;
 }
 
-function displayResponsavel(t) {
-  const nome = String(t.responsavelNome || "").trim();
-  if (nome) return nome;
-
-  const email = String(t.responsavelEmail || "").toLowerCase();
-  if (me && me.role === "USER" && email === String(me.email || "").toLowerCase()) {
-    return me.nome || me.email;
-  }
-  return t.responsavelEmail || "";
+/* “Em Atraso” GLOBAL: ignora filtros */
+function renderLateGlobal(allTasks) {
+  const late = (allTasks || []).filter((t) => isOpenLate(t)).length;
+  $("kLate").textContent = late;
 }
 
 function renderTable(list) {
@@ -235,12 +241,16 @@ function renderTable(list) {
 
   (list || []).forEach((t) => {
     const tr = document.createElement("tr");
+
+    // se o backend já preencheu responsavelNome, aqui só usa normal
+    const resp = t.responsavelNome || t.responsavelEmail || "";
+
     tr.innerHTML = `
       <td>${fmtCompetencia(t.competenciaYm || t.competencia)}</td>
       <td>${t.recorrencia || ""}</td>
       <td>${t.tipo || ""}</td>
       <td>${t.atividade || ""}</td>
-      <td>${displayResponsavel(t)}</td>
+      <td>${resp}</td>
       <td>${fmtDateBR(t.prazo)}</td>
       <td>${t.realizado ? fmtDateBR(t.realizado) : ""}</td>
       <td><span class="pill ${pillClass(t.status)}">${t.status || ""}</span></td>
@@ -283,10 +293,21 @@ function renderTable(list) {
     bDup.title = "Duplicar";
     bDup.textContent = "⧉";
     bDup.onclick = async () => {
-      const r = await api(`/api/tasks/${t.id}/duplicate`, { method: "POST" });
-      if (!r.ok) return alert(r.error || "Erro");
-      if (r.task) tasks.unshift(r.task);
-      renderFromLocal();
+      bDup.disabled = true;
+      const prev = $("hint").textContent;
+      $("hint").textContent = "Duplicando...";
+
+      try {
+        const r = await api(`/api/tasks/${t.id}/duplicate`, { method: "POST" });
+        if (!r.ok) {
+          $("hint").textContent = prev || "";
+          return alert(r.error || "Erro");
+        }
+        if (r.task) tasks.unshift(r.task);
+        renderFromLocal(); // já atualiza "Mostrando..."
+      } finally {
+        bDup.disabled = false;
+      }
     };
     row.appendChild(bDup);
 
@@ -296,10 +317,22 @@ function renderTable(list) {
     bDel.textContent = "🗑";
     bDel.onclick = async () => {
       if (!confirm("Excluir task?")) return;
-      const r = await api(`/api/tasks/${t.id}`, { method: "DELETE" });
-      if (!r.ok) return alert(r.error || "Erro");
-      removeLocalTask(t.id);
-      renderFromLocal();
+
+      bDel.disabled = true;
+      const prev = $("hint").textContent;
+      $("hint").textContent = "Excluindo...";
+
+      try {
+        const r = await api(`/api/tasks/${t.id}`, { method: "DELETE" });
+        if (!r.ok) {
+          $("hint").textContent = prev || "";
+          return alert(r.error || "Erro");
+        }
+        removeLocalTask(t.id);
+        renderFromLocal(); // já atualiza "Mostrando..."
+      } finally {
+        bDel.disabled = false;
+      }
     };
     row.appendChild(bDel);
 
@@ -338,7 +371,6 @@ function setModalMode(mode) {
   const all = ["mCompMes","mCompAno","mRecorrencia","mTipo","mStatus","mResp","mAtividade","mPrazo","mRealizado","mObs"];
   all.forEach((id) => { const el = document.getElementById(id); if (el) el.disabled = true; });
 
-  // botões
   const save = document.getElementById("mSave");
   const clear = document.getElementById("mClearReal");
   if (clear) clear.style.display = "none";
@@ -355,7 +387,6 @@ function setModalMode(mode) {
     return;
   }
 
-  // USER_OBS: só Observações editável
   if (mode === "USER_OBS") {
     const obs = document.getElementById("mObs");
     if (obs) obs.disabled = false;
@@ -417,7 +448,7 @@ function openModalUserObs(id) {
   const t = tasks.find((x) => x.id === id);
   if (!t) return;
 
-  editingId = id; // precisa do id para salvar obs
+  editingId = id;
   $("mTitle").textContent = "Observações";
   $("mHint").textContent = "Você pode editar apenas Observações.";
 
@@ -445,24 +476,18 @@ function closeModal() {
 async function saveTask() {
   $("mHint").textContent = "Salvando...";
 
-  // USER: salva somente observacoes
   if (me.role === "USER") {
     if (!editingId) { $("mHint").textContent = "Task inválida."; return; }
-
     const payload = { observacoes: ($("mObs").value || "").trim() };
-
     const res = await api(`/api/tasks/${editingId}`, { method: "PUT", body: JSON.stringify(payload) });
     if (!res.ok) { $("mHint").textContent = res.error || "Erro"; return; }
-
     closeModal();
     if (res.task) upsertLocalTask(res.task);
     renderFromLocal();
     return;
   }
 
-  // LEADER/ADMIN
   const competenciaYm = `${$("mCompAno").value}-${$("mCompMes").value}`;
-
   const payload = {
     competenciaYm,
     recorrencia: $("mRecorrencia").value || "",
@@ -489,7 +514,6 @@ async function saveTask() {
 
 async function clearRealizado() {
   if (me.role === "USER") return;
-
   if (!editingId) { $("mRealizado").value = ""; return; }
 
   const res = await api(`/api/tasks/${editingId}`, {
