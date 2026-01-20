@@ -39,22 +39,86 @@ function fillUsersSelect(el, list, { empty = null } = {}) {
   });
 }
 
-/* date helpers */
+/* ===== date helpers (SEM timezone bug) ===== */
 function startOfDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
 function endOfDay(d) { const x = new Date(d); x.setHours(23,59,59,999); return x; }
-function parseISO(iso) { if(!iso) return null; const d = new Date(iso); return isNaN(d.getTime()) ? null : d; }
+
+// YYYY-MM-DD -> Date local (evita voltar 1 dia)
+function parseISO(iso) {
+  if (!iso) return null;
+  const s = String(iso).trim();
+
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const y = Number(m[1]), mm = Number(m[2]), dd = Number(m[3]);
+    const d = new Date(y, mm - 1, dd);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Formata para DD/MM/AAAA sem criar Date em UTC
+function fmtDateBR(v) {
+  if (!v) return "";
+  const s = String(v).trim();
+
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+
+  const d = parseISO(s);
+  if (!d) return s;
+
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = d.getFullYear();
+  return `${dd}/${mm}/${yy}`;
+}
+
+// Para input type="date" (YYYY-MM-DD)
+function toInputDate(v) {
+  if (!v) return "";
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = parseISO(s);
+  if (!d) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 function applyFilters(list) {
+  const ativ = ($("fAtiv")?.value || "").trim().toLowerCase();
   const status = ($("fStatus").value || "").trim();
   const resp = ($("fResp")?.value || "").trim();
   const fromStr = $("fFrom").value;
   const toStr = $("fTo").value;
 
-  const from = fromStr ? startOfDay(new Date(fromStr)) : null;
-  const to = toStr ? endOfDay(new Date(toStr)) : null;
+  const from = fromStr ? startOfDay(parseISO(fromStr)) : null;
+  const to = toStr ? endOfDay(parseISO(toStr)) : null;
 
   return (list || []).filter((t) => {
-    if (status && String(t.status || "") !== status) return false;
+    if (ativ) {
+      const a = String(t.atividade || "").toLowerCase();
+      if (!a.includes(ativ)) return false;
+    }
+
+    if (status) {
+      if (status === "Em Atraso") {
+        const prazo = parseISO(t.prazo);
+        if (!prazo || prazo >= new Date()) return false;
+        if (isDoneTask(t)) return false;
+      }
+      else if (status === "Concluído em Atraso") {
+        if (!isDoneLate(t)) return false;
+      }
+      else {
+        if (String(t.status || "") !== status) return false;
+      }
+    }
+
     if (resp && String(t.responsavelEmail || "").toLowerCase() !== resp.toLowerCase()) return false;
 
     const p = parseISO(t.prazo);
@@ -170,10 +234,16 @@ async function bootstrap() {
   users = (ures && ures.ok && ures.users) ? ures.users : [];
 
   const today = new Date();
-  $("fFrom").value = today.toISOString().slice(0, 10);
-  $("fTo").value = today.toISOString().slice(0, 10);
+  const todayYMD = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  $("fFrom").value = todayYMD;
+  $("fTo").value = todayYMD;
 
-  fillSelect($("fStatus"), lookups.STATUS || [], { empty: "Todos" });
+  const statusFilter = [
+    ...(lookups.STATUS || []),
+    "Em Atraso",
+    "Concluído em Atraso"
+  ];
+  fillSelect($("fStatus"), statusFilter, { empty: "Todos" });
 
   if ($("fResp")) {
     if (me.role === "USER") {
@@ -192,6 +262,7 @@ async function bootstrap() {
   $("btnNew").onclick = () => openModalNew();
   $("btnRefresh").onclick = () => loadTasks();
   $("btnFilter").onclick = () => renderFromLocal();
+  $("fAtiv")?.addEventListener("input", () => renderFromLocal());
 
   $("mClose").onclick = () => closeModal();
   $("mCancel").onclick = () => closeModal();
@@ -220,7 +291,7 @@ function renderKPIs(list) {
 
   const doneLate = list.filter((t) => isDoneLate(t)).length;
 
-  // Concluídas SEM atraso (pra não contar duas vezes)
+  // Concluídas SEM atraso
   const done = list.filter((t) => isDoneTask(t) && !isDoneLate(t)).length;
 
   $("kTotal").textContent = total;
@@ -242,7 +313,6 @@ function renderTable(list) {
   (list || []).forEach((t) => {
     const tr = document.createElement("tr");
 
-    // se o backend já preencheu responsavelNome, aqui só usa normal
     const resp = t.responsavelNome || t.responsavelEmail || "";
 
     tr.innerHTML = `
@@ -293,18 +363,23 @@ function renderTable(list) {
     bDup.title = "Duplicar";
     bDup.textContent = "⧉";
     bDup.onclick = async () => {
+      const n = Number(prompt("Quantas cópias duplicar?", "1") || "0");
+      if (!Number.isFinite(n) || n <= 0) return;
+
       bDup.disabled = true;
       const prev = $("hint").textContent;
-      $("hint").textContent = "Duplicando...";
+      $("hint").textContent = `Duplicando (${n})...`;
 
       try {
-        const r = await api(`/api/tasks/${t.id}/duplicate`, { method: "POST" });
-        if (!r.ok) {
-          $("hint").textContent = prev || "";
-          return alert(r.error || "Erro");
+        for (let i = 0; i < n; i++) {
+          const r = await api(`/api/tasks/${t.id}/duplicate`, { method: "POST" });
+          if (!r.ok) {
+            $("hint").textContent = prev || "";
+            return alert(r.error || "Erro");
+          }
+          if (r.task) tasks.unshift(r.task);
         }
-        if (r.task) tasks.unshift(r.task);
-        renderFromLocal(); // já atualiza "Mostrando..."
+        renderFromLocal();
       } finally {
         bDup.disabled = false;
       }
@@ -329,7 +404,7 @@ function renderTable(list) {
           return alert(r.error || "Erro");
         }
         removeLocalTask(t.id);
-        renderFromLocal(); // já atualiza "Mostrando..."
+        renderFromLocal();
       } finally {
         bDel.disabled = false;
       }
@@ -343,9 +418,14 @@ function renderTable(list) {
 
 async function toggleDone(t) {
   const done = isDoneTask(t);
+
+  // manda YYYY-MM-DD (sem timezone)
+  const today = new Date();
+  const todayYMD = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+
   const patch = done
     ? { status: "Em Andamento", realizado: "CLEAR" }
-    : { status: "Concluído", realizado: new Date().toISOString() };
+    : { status: "Concluído", realizado: todayYMD };
 
   const before = { ...t };
 
@@ -436,7 +516,7 @@ function openModalEdit(id) {
   $("mResp").value = t.responsavelEmail || "";
 
   $("mAtividade").value = t.atividade || "";
-  $("mPrazo").value = t.prazo ? new Date(t.prazo).toISOString().slice(0, 10) : "";
+  $("mPrazo").value = toInputDate(t.prazo);
   $("mRealizado").value = t.realizado ? isoToInputDT(t.realizado) : "";
   $("mObs").value = t.observacoes || "";
 
@@ -460,7 +540,7 @@ function openModalUserObs(id) {
   $("mResp").value = t.responsavelEmail || "";
 
   $("mAtividade").value = t.atividade || "";
-  $("mPrazo").value = t.prazo ? new Date(t.prazo).toISOString().slice(0, 10) : "";
+  $("mPrazo").value = toInputDate(t.prazo);
   $("mRealizado").value = t.realizado ? isoToInputDT(t.realizado) : "";
   $("mObs").value = t.observacoes || "";
 
@@ -495,8 +575,9 @@ async function saveTask() {
     status: $("mStatus").value || "",
     responsavelEmail: $("mResp").value || "",
     atividade: ($("mAtividade").value || "").trim(),
-    prazo: $("mPrazo").value ? new Date($("mPrazo").value).toISOString() : "",
-    realizado: $("mRealizado").value ? new Date($("mRealizado").value).toISOString() : "",
+    // envia YYYY-MM-DD (backend já salva assim)
+    prazo: $("mPrazo").value || "",
+    realizado: $("mRealizado").value ? String($("mRealizado").value).slice(0, 10) : "",
     observacoes: ($("mObs").value || "").trim(),
   };
 
