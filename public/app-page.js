@@ -7,6 +7,15 @@ let modalMode = "EDIT"; // EDIT | VIEW | USER_OBS
 
 const $ = (id) => document.getElementById(id);
 
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function fillSelect(el, items, { empty = null } = {}) {
   el.innerHTML = "";
   if (empty !== null) {
@@ -245,13 +254,16 @@ async function bootstrap() {
   ];
   fillSelect($("fStatus"), statusFilter, { empty: "Todos" });
 
-  if ($("fResp")) {
+  const fResp = $("fResp");
+  if (fResp) {
+    const wrap = fResp.closest(".field"); // remove o bloco inteiro (label + select)
     if (me.role === "USER") {
-      $("fResp").style.display = "none";
+      if (wrap) wrap.remove();
     } else {
-      fillUsersSelect($("fResp"), users, { empty: "Todos responsáveis" });
+      fillUsersSelect(fResp, users, { empty: "Todos responsáveis" });
     }
   }
+
 
   setupCompetenciaSelects();
   fillSelect($("mRecorrencia"), lookups.RECORRENCIA || []);
@@ -315,18 +327,38 @@ function renderTable(list) {
 
     const resp = t.responsavelNome || t.responsavelEmail || "";
 
-    tr.innerHTML = `
-      <td>${fmtCompetencia(t.competenciaYm || t.competencia)}</td>
-      <td>${t.recorrencia || ""}</td>
-      <td>${t.tipo || ""}</td>
-      <td>${t.atividade || ""}</td>
-      <td>${resp}</td>
-      <td>${fmtDateBR(t.prazo)}</td>
-      <td>${t.realizado ? fmtDateBR(t.realizado) : ""}</td>
-      <td><span class="pill ${pillClass(t.status)}">${t.status || ""}</span></td>
-      <td></td>
-    `;
+    const obs = String(t.observacoes || "").trim();
+    const obsShort = obs.length > 120 ? obs.slice(0, 120) + "…" : obs;
+    const activity = String(t.atividade || "");
 
+    tr.innerHTML = `
+      <td class="col-comp">${fmtCompetencia(t.competenciaYm || t.competencia)}</td>
+      <td class="col-rec">${t.recorrencia || ""}</td>
+      <td class="col-tipo">${t.tipo || ""}</td>
+
+      <td class="col-atividade" title="${escapeHtml(activity)}">
+        <div class="atividadeCell ${obs ? "hasObs" : ""}">
+          <span class="atividadeText">${escapeHtml(activity)}</span>
+          ${obs ? `<span class="obsIcon" title="${escapeHtml(obsShort)}">🗒</span>` : ""}
+        </div>
+      </td>
+
+      <td class="col-resp" title="${escapeHtml(resp)}">
+        <span class="cellText">${escapeHtml(resp)}</span>
+      </td>
+
+      <td class="col-prazo">${fmtDateBR(t.prazo)}</td>
+      <td class="col-real">${t.realizado ? fmtDateBR(t.realizado) : ""}</td>
+
+      <td class="col-status">
+        <span class="pill ${pillClass(t.status)}" title="${escapeHtml(String(t.status || ""))}">
+          ${escapeHtml(String(t.status || ""))}
+        </span>
+      </td>
+
+      <td class="col-acoes"></td>
+    `;
+    
     const td = tr.querySelector("td:last-child");
     const row = document.createElement("div");
     row.className = "rowActions";
