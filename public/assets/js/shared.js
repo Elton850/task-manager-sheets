@@ -2,23 +2,45 @@ function getToken() {
   return sessionStorage.getItem("token") || "";
 }
 
-async function api(url, opt = {}) {
-  const headers = Object.assign({ "Content-Type": "application/json" }, opt.headers || {});
-  const r = await fetch(url, {
-    ...opt,
+function readCookie(name) {
+  const parts = document.cookie.split(";").map(s => s.trim());
+  for (const p of parts) {
+    if (p.startsWith(name + "=")) return decodeURIComponent(p.slice(name.length + 1));
+  }
+  return "";
+}
+
+async function api(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+
+  const headers = { ...(options.headers || {}) };
+
+  if (!headers["Content-Type"] && method !== "GET" && method !== "HEAD") {
+    headers["Content-Type"] = "application/json";
+  }
+
+  if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    const csrf = readCookie("qco_csrf");
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
+
+  const res = await fetch(path, {
+    ...options,
+    method,
     headers,
-    credentials: "include", // <<< CRÍTICO: envia cookie HttpOnly
+    credentials: "include",
   });
 
-  let data = null;
-  try { data = await r.json(); } catch { data = { ok: false, error: "INVALID_JSON" }; }
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch { json = { ok: false, error: "Resposta inválida do servidor" }; }
 
-  if (r.status === 401) {
-    // sem sessão -> força login
-    location.href = "/";
+  if (res.status === 401) {
+    window.location.href = "/";
     return { ok: false, error: "UNAUTHORIZED" };
   }
-  return data;
+
+  return json;
 }
 
 async function logout() {

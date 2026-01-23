@@ -4,15 +4,41 @@ import helmet from "helmet";
 import path from "path";
 import bcrypt from "bcryptjs";
 import cookieParser from "cookie-parser";
+import rateLimit from "express-rate-limit";
+import crypto from "crypto";
 
-import { login, verifyToken, type AuthedUser } from "./auth";
+import { login, verifyToken, type AuthedUser, adminGenerateResetCode, resetPasswordWithCode, AuthError } from "./auth";
 import { sheets } from "./sheetsApi";
 import { mustString, nowIso, safeLowerEmail } from "./utils";
 import type { TaskRow } from "./types";
 import { canEditTask, canDeleteTask } from "./access";
 
 const app = express();
-app.use(helmet({ contentSecurityPolicy: false }));
+
+// Render/Proxy
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+// Helmet (CSP compatível: não quebra seu HTML/CSS atual)
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "default-src": ["'self'"],
+        "script-src": ["'self'", "'unsafe-inline'"], // mantém compatibilidade
+        "style-src": ["'self'", "'unsafe-inline'"],  // mantém compatibilidade
+        "img-src": ["'self'", "data:"],
+        "connect-src": ["'self'"],
+        "frame-ancestors": ["'none'"],
+        "base-uri": ["'self'"],
+        "object-src": ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
@@ -22,9 +48,10 @@ const a =
     Promise.resolve(fn(req, res, next)).catch(next);
 
 /* =========================
-   Sessão via Cookie HttpOnly
+   Cookies: Sessão + CSRF
    ========================= */
 const SESSION_COOKIE = "qco_session";
+const CSRF_COOKIE = "qco_csrf";
 
 function isProd() {
   return String(process.env.NODE_ENV || "").toLowerCase() === "production";
@@ -33,10 +60,10 @@ function isProd() {
 function setSessionCookie(res: express.Response, token: string) {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: isProd(), // Render = HTTPS
+    secure: isProd(),
     sameSite: "lax",
     path: "/",
-    maxAge: 1000 * 60 * 60 * 12, // 12h (ajuste se quiser)
+    maxAge: 1000 * 60 * 60 * 12, // 12h
   });
 }
 
@@ -44,12 +71,31 @@ function clearSessionCookie(res: express.Response) {
   res.clearCookie(SESSION_COOKIE, { path: "/" });
 }
 
+function genCsrf() {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+function setCsrfCookie(res: express.Response, token: string) {
+  // não httpOnly para o front conseguir ler e mandar no header
+  res.cookie(CSRF_COOKIE, token, {
+    httpOnly: false,
+    secure: isProd(),
+    sameSite: "lax",
+    path: "/",
+    maxAge: 1000 * 60 * 60 * 12, // casa com sessão
+  });
+}
+
+function ensureCsrfCookie(req: any, res: any) {
+  const has = String(req.cookies?.[CSRF_COOKIE] || "");
+  if (!has) setCsrfCookie(res, genCsrf());
+}
+
 function getTokenFromReq(req: any) {
-  // 1) cookie (preferido)
   const c = req.cookies?.[SESSION_COOKIE];
   if (c) return String(c);
 
-  // 2) fallback: Authorization Bearer (mantém compatibilidade)
+  // fallback (compat)
   const auth = String(req.headers.authorization || "");
   if (auth.startsWith("Bearer ")) return auth.slice(7);
 
@@ -67,16 +113,34 @@ function authMiddleware(req: any, res: any, next: any) {
   }
 }
 
-async function getUserByEmailSafe(email: string) {
-  const e = safeLowerEmail(email);
-  if (!e) return null;
-  try {
-    const u = await sheets.getUserByEmail(e);
-    return u || null;
-  } catch {
-    return null;
+// CSRF: exige header em mutações
+function csrfProtect(req: any, res: any, next: any) {
+  const m = String(req.method || "GET").toUpperCase();
+  if (m === "GET" || m === "HEAD" || m === "OPTIONS") return next();
+
+  // libera auth/login e auth/logout
+  if (req.path === "/api/auth/login" || req.path === "/api/auth/logout") return next();
+
+  const cookieToken = String(req.cookies?.[CSRF_COOKIE] || "");
+  const headerToken = String(req.headers["x-csrf-token"] || "");
+
+  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+    return res.status(403).json({ ok: false, error: "CSRF_BLOCKED" });
   }
+
+  next();
 }
+
+/* =========================
+   Rate limit (login)
+   ========================= */
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: "Muitas tentativas. Tente novamente em alguns minutos." },
+});
 
 /* ===== Cache de tasks (TTL curto) + índice por ID ===== */
 let tasksCache: { at: number; data: TaskRow[] } | null = null;
@@ -122,16 +186,13 @@ function normYm(input: any): string {
   return s;
 }
 
-/* ===== Datas: salvar como YYYY-MM-DD (sem Z/UTC) ===== */
+/* ===== Datas: salvar como YYYY-MM-DD ===== */
 function toYmdOrEmpty(v: any): string {
   if (!v) return "";
   const s = String(v).trim();
   if (!s) return "";
-
-  // já está no formato YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-  // tenta parsear ISO e reduzir
   const d = new Date(s);
   if (!isNaN(d.getTime())) {
     const y = d.getFullYear();
@@ -139,17 +200,15 @@ function toYmdOrEmpty(v: any): string {
     const dd = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${dd}`;
   }
-
   return s.slice(0, 10);
 }
 
-/* ===== Regras de status (Concluído x Concluído em Atraso) ===== */
+/* ===== Status (Concluído x Concluído em Atraso) ===== */
 function toDateOrNull(v: any) {
   if (!v) return null;
   const s = String(v).trim();
   if (!s) return null;
 
-  // interpreta YYYY-MM-DD como local (evita -1 dia)
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m) {
     const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
@@ -179,26 +238,34 @@ function applyDoneLateRule(finalStatus: any, finalPrazo: any, finalRealizado: an
   return r > p ? "Concluído em Atraso" : "Concluído";
 }
 
+async function getUserByEmailSafe(email: string) {
+  const e = safeLowerEmail(email);
+  if (!e) return null;
+  try {
+    const u = await sheets.getUserByEmail(e);
+    return u || null;
+  } catch {
+    return null;
+  }
+}
+
 /* =========================
-   Static + rotas de páginas
+   Static + páginas
    ========================= */
 app.use("/public", express.static(path.join(process.cwd(), "public")));
 
-/**
- * ROTA VAZIA:
- * - se logado -> /calendar
- * - se não -> login.html
- */
+// rota vazia: se logado -> calendário
 app.get(
   "/",
   a(async (req: any, res: any) => {
+    ensureCsrfCookie(req, res);
+
     const token = getTokenFromReq(req);
     if (token) {
       try {
         verifyToken(token);
         return res.redirect("/calendar");
       } catch {
-        // cookie inválido/expirado
         clearSessionCookie(res);
       }
     }
@@ -206,29 +273,76 @@ app.get(
   })
 );
 
-app.get("/app", (_req, res) => res.sendFile(path.join(process.cwd(), "public/app.html")));
-app.get("/calendar", (_req, res) => res.sendFile(path.join(process.cwd(), "public/calendar.html")));
-app.get("/admin", (_req, res) => res.sendFile(path.join(process.cwd(), "public/admin.html")));
-app.get("/admin/users", (_req, res) => res.sendFile(path.join(process.cwd(), "public/users.html")));
+app.get("/app", (req, res) => {
+  ensureCsrfCookie(req, res);
+  res.sendFile(path.join(process.cwd(), "public/app.html"));
+});
+app.get("/calendar", (req, res) => {
+  ensureCsrfCookie(req, res);
+  res.sendFile(path.join(process.cwd(), "public/calendar.html"));
+});
+app.get("/admin", (req, res) => {
+  ensureCsrfCookie(req, res);
+  res.sendFile(path.join(process.cwd(), "public/admin.html"));
+});
+app.get("/admin/users", (req, res) => {
+  ensureCsrfCookie(req, res);
+  res.sendFile(path.join(process.cwd(), "public/users.html"));
+});
+
+/* =========================
+   CSRF endpoint (opcional)
+   ========================= */
+app.get(
+  "/api/csrf",
+  a(async (req: any, res: any) => {
+    ensureCsrfCookie(req, res);
+    res.json({ ok: true });
+  })
+);
 
 /* =========================
    AUTH
    ========================= */
 app.post(
   "/api/auth/login",
+  loginLimiter,
   a(async (req: any, res: any) => {
-    const email = mustString(req.body.email, "Email");
-    const password = mustString(req.body.password, "Senha");
+    try {
+      const email = mustString(req.body.email, "Email");
+      const password = mustString(req.body.password, "Senha");
 
-    const out = await login(email, password);
-    // out deve conter token e user (como você já tinha)
-    if (!out?.token) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+      const out = await login(email, password);
 
-    // cookie de sessão HttpOnly
-    setSessionCookie(res, out.token);
+      setSessionCookie(res, out.token);
+      setCsrfCookie(res, genCsrf());
+      res.json({ ok: true, user: out.user });
+    } catch (e: any) {
+      if (e?.code === "RESET_REQUIRED") {
+        return res.status(409).json({ ok: false, error: "RESET_REQUIRED", firstAccess: !!e?.meta?.firstAccess });
+      }
+      return res.status(401).json({ ok: false, error: e?.message || "UNAUTHORIZED" });
+    }
+  })
+);
 
-    // devolve user pro front (token não precisa mais ir pro localStorage)
-    res.json({ ok: true, user: out.user });
+app.post(
+  "/api/auth/reset",
+  a(async (req: any, res: any) => {
+    try {
+      const email = mustString(req.body.email, "Email");
+      const code = mustString(req.body.code, "Código");
+      const newPassword = mustString(req.body.newPassword, "Nova senha");
+
+      const out = await resetPasswordWithCode(email, code, newPassword);
+
+      setSessionCookie(res, out.token);
+      setCsrfCookie(res, genCsrf());
+      res.json({ ok: true, user: out.user });
+    } catch (e: any) {
+      const msg = e?.message || "Erro";
+      res.status(400).json({ ok: false, error: msg });
+    }
   })
 );
 
@@ -236,9 +350,13 @@ app.post(
   "/api/auth/logout",
   a(async (_req: any, res: any) => {
     clearSessionCookie(res);
+    res.clearCookie(CSRF_COOKIE, { path: "/" });
     res.json({ ok: true });
   })
 );
+
+// protege mutações
+app.use(csrfProtect);
 
 app.get(
   "/api/me",
@@ -363,6 +481,22 @@ app.post(
   })
 );
 
+app.post(
+  "/api/admin/users/:email/reset-code",
+  authMiddleware,
+  a(async (req: any, res: any) => {
+    const me = req.user as AuthedUser;
+    if (me.role !== "ADMIN") return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+
+    const email = mustString(req.params.email, "Email").toLowerCase();
+    const out = await adminGenerateResetCode(me, email);
+
+    // retorna o código só pro ADMIN (você copia e passa pro usuário)
+    res.json({ ok: true, ...out });
+  })
+);
+
+
 /* LOOKUPS */
 app.get(
   "/api/lookups",
@@ -415,19 +549,18 @@ app.get(
     const me = req.user as AuthedUser;
     const all = await listTasksCached();
 
-    let visible = all.filter((t) => {
+    let visible = all.filter((t: any) => {
       if (me.role === "ADMIN") return true;
-      if (me.role === "LEADER") return String((t as any).area || "") === String(me.area || "");
-      return safeLowerEmail((t as any).responsavelEmail) === me.email;
+      if (me.role === "LEADER") return String(t.area || "") === String(me.area || "");
+      return safeLowerEmail(t.responsavelEmail) === me.email;
     });
 
-    // tenta preencher responsavelNome
+    // preenche responsavelNome se vazio
     try {
-      const needs = visible.some((t) => !String((t as any).responsavelNome || "").trim());
+      const needs = visible.some((t: any) => !String(t.responsavelNome || "").trim());
       if (needs) {
         const uAll = await sheets.listUsers();
         const map = new Map<string, string>(uAll.map((u: any) => [safeLowerEmail(u.email), String(u.nome || "").trim()]));
-
         visible = visible.map((t: any) => {
           const email = safeLowerEmail(t.responsavelEmail);
           const nome = String(t.responsavelNome || "").trim() || map.get(email) || "";
@@ -550,7 +683,6 @@ app.put(
     const current = await getTaskByIdCached(id);
     if (!current) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
 
-    // USER: status/realizado/observacoes apenas
     if (me.role === "USER") {
       if (safeLowerEmail((current as any).responsavelEmail) !== me.email) {
         return res.status(403).json({ ok: false, error: "FORBIDDEN" });
@@ -560,10 +692,6 @@ app.put(
       if (req.body.status !== undefined) patch.status = req.body.status;
       if (req.body.realizado !== undefined) patch.realizado = req.body.realizado;
       if (req.body.observacoes !== undefined) patch.observacoes = String(req.body.observacoes || "");
-
-      if (patch.status === undefined && patch.realizado === undefined && patch.observacoes === undefined) {
-        return res.status(403).json({ ok: false, error: "Sem alterações permitidas." });
-      }
 
       normalizeClear(patch);
       if (patch.realizado !== undefined) patch.realizado = toYmdOrEmpty(patch.realizado);
@@ -578,7 +706,6 @@ app.put(
       return res.json({ ok: true, task: updated });
     }
 
-    // LEADER/ADMIN
     const patch: any = { ...req.body, updatedAt: nowIso(), updatedBy: me.email };
     normalizeClear(patch);
 

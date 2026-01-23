@@ -68,3 +68,10 @@ input::placeholder{ color: rgba(255,255,255,.42); }
 }
 .btn:hover{ transform:translateY(-1px); border-color:rgba(255,255,255,.18); }
 .btn:active{ transform:translateY(0); opacity:.92; }
+
+.link{
+  color: rgba(255,255,255,.78);
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(255,255,255,.28);
+}
+.link:hover{ border-bottom-color: rgba(255,255,255,.55); }

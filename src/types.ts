@@ -7,7 +7,13 @@ export type UserRow = {
   area: string;
   active: string | boolean;
   canDelete: string | boolean;
-  passwordHash: string;
+
+  passwordHash?: string;
+
+  // reset / primeiro acesso
+  mustChangePassword?: string | boolean;
+  resetCodeHash?: string;
+  resetCodeExpiresAt?: string;
 };
 
 export type TaskRow = {
@@ -20,8 +26,8 @@ export type TaskRow = {
   responsavelEmail: string;
   responsavelNome: string;
   area: string;
-  prazo: string;      // ISO
-  realizado: string;  // ISO ou vazio
+  prazo: string;
+  realizado: string;
   status: string;
   observacoes: string;
   createdAt: string;

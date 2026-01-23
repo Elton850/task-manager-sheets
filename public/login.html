@@ -26,10 +26,42 @@
         <input id="password" type="password" />
       </div>
 
+      <!-- RESET / PRIMEIRO ACESSO (oculto por padrão) -->
+      <div id="resetBox" style="display:none; margin-top:12px;">
+        <div class="sub" style="margin-bottom:8px;">
+          Informe o código fornecido pelo Admin e defina sua nova senha.
+        </div>
+
+        <div class="field">
+          <label>Código</label>
+          <input id="resetCode" placeholder="Ex: 7K3P9ZQ2" />
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="field">
+          <label>Nova senha</label>
+          <input id="newPass" type="password" />
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="field">
+          <label>Confirmar senha</label>
+          <input id="newPass2" type="password" />
+        </div>
+      </div>
+
       <div style="height:12px"></div>
 
       <button id="btnLogin" class="btn" style="width:100%">Entrar</button>
+      <button id="btnReset" class="btn" style="width:100%; display:none; margin-top:8px;">Definir senha</button>
+
       <div class="hint" id="hint"></div>
+
+      <div class="hint" style="margin-top:8px;">
+        <a href="#" id="toggleReset" class="link">Primeiro acesso / Reset de senha</a>
+      </div>
     </div>
   </div>
 
