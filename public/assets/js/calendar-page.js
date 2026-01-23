@@ -5,19 +5,24 @@ let selectedYMD = null;
 
 const $ = (id) => document.getElementById(id);
 
+/* ===== UI: alterna entre calendário e painel do dia ===== */
 function showCalendar() {
-  $("dayPanel").style.display = "none";
-  $("calPanel").style.display = "block";
   selectedYMD = null;
+  const dp = $("dayPanel");
+  const cp = $("calPanel");
+  if (dp) dp.style.display = "none";
+  if (cp) cp.style.display = "block";
   renderCalendar();
 }
 
 function showDayPanel(ymd) {
   selectedYMD = ymd;
-  $("calPanel").style.display = "none";
-  $("dayPanel").style.display = "block";
-  renderCalendar();         // atualiza seleção
-  renderDayDetails(ymd);    // preenche colunas
+  const dp = $("dayPanel");
+  const cp = $("calPanel");
+  if (cp) cp.style.display = "none";
+  if (dp) dp.style.display = "block";
+  renderCalendar();
+  renderDayDetails(ymd);
   document.querySelector(".main")?.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -133,7 +138,6 @@ function setAlerts(all){
     if (!p) return;
 
     if (p < t0) cLate++;
-
     if (inRange(p, tomorrowA, tomorrowB)) cTomorrow++;
     if (inRange(p, d3A, d3B)) c3++;
     if (inRange(p, d7A, d7B)) c7++;
@@ -145,7 +149,7 @@ function setAlerts(all){
   $("aLate").textContent = cLate;
 }
 
-/* ===== calendar render ===== */
+/* ===== calendar helpers ===== */
 function monthTitle(d){
   return new Intl.DateTimeFormat("pt-BR", { month:"long", year:"numeric" }).format(d);
 }
@@ -157,10 +161,9 @@ function buildMonthGrid(ref){
   const first = new Date(y, m, 1);
   const last = new Date(y, m+1, 0);
 
-  const startDow = first.getDay(); // 0..6 (Dom..)
+  const startDow = first.getDay(); // 0..6
   const daysInMonth = last.getDate();
 
-  // 42 cells (6 semanas)
   const cells = [];
   for (let i=0;i<42;i++){
     const dayNum = i - startDow + 1;
@@ -185,6 +188,7 @@ function groupCountsByDay(all){
   return map;
 }
 
+/* ===== render calendar ===== */
 function renderCalendar(){
   $("monthTitle").textContent = monthTitle(monthRef);
 
@@ -193,6 +197,7 @@ function renderCalendar(){
 
   const counts = groupCountsByDay(tasks);
   const cells = buildMonthGrid(monthRef);
+
   const nowYMD = ymdFromDate(new Date());
 
   cells.forEach(c=>{
@@ -200,20 +205,32 @@ function renderCalendar(){
     div.className =
       "dayCell" +
       (c.inMonth ? "" : " muted") +
-      (selectedYMD && c.ymd === selectedYMD ? " selected" : "");
+      (c.ymd === selectedYMD ? " selected" : "") +
+      (c.ymd === nowYMD ? " today" : "");
 
     const info = counts.get(c.ymd) || { AND:0, LATE:0, DONE:0, DONE_LATE:0, total:0 };
+
+    // mini-bar: valores vão via CSS vars (visual-only)
+    const barStyle = `--and:${info.AND};--late:${info.LATE};--done:${info.DONE};--doneLate:${info.DONE_LATE};--tot:${info.total};`;
 
     div.innerHTML = `
       <div class="dayTop">
         <div class="dayNum">${c.date.getDate()}</div>
         <div class="sub">${c.ymd === nowYMD ? "Hoje" : ""}</div>
       </div>
+
+      <div class="miniBar" style="${barStyle}">
+        <span class="seg and"></span>
+        <span class="seg late"></span>
+        <span class="seg done"></span>
+        <span class="seg doneLate"></span>
+      </div>
+
       <div class="badges">
-        ${info.AND ? `<span class="badge b-and">A: ${info.AND}</span>` : ""}
-        ${info.LATE ? `<span class="badge b-late">L: ${info.LATE}</span>` : ""}
-        ${info.DONE ? `<span class="badge b-done">C: ${info.DONE}</span>` : ""}
-        ${info.DONE_LATE ? `<span class="badge b-doneLate">CA: ${info.DONE_LATE}</span>` : ""}
+        ${info.AND ? `<span class="badge b-and" title="Em Andamento">A: ${info.AND}</span>` : ""}
+        ${info.LATE ? `<span class="badge b-late" title="Em Atraso">L: ${info.LATE}</span>` : ""}
+        ${info.DONE ? `<span class="badge b-done" title="Concluída">C: ${info.DONE}</span>` : ""}
+        ${info.DONE_LATE ? `<span class="badge b-doneLate" title="Concluída em Atraso">CA: ${info.DONE_LATE}</span>` : ""}
       </div>
     `;
 
@@ -228,10 +245,11 @@ function renderCalendar(){
     `Mês: ${monthTitle(monthRef)} • Tasks com prazo preenchido: ${tasks.filter(t=>t.prazo).length}`;
 }
 
+/* ===== render day details ===== */
 function renderDayDetails(ymd){
   $("dayTitle").innerHTML = `
     <button class="btn ghost btnBack" id="btnBackCal">← Voltar</button>
-    <span style="margin-left:10px;font-weight:900;">Dia ${fmtBR(ymd)} • Prazo</span>
+    <span style="margin-left:10px;font-weight:950;">Dia ${fmtBR(ymd)} • Prazo</span>
     <span style="margin-left:10px;">
       <a href="${toAppUrl(ymd, "")}" style="color:inherit;text-decoration:underline;opacity:.85">
         Ver no Task Manager
@@ -266,7 +284,7 @@ function renderList(id, list, bucket, ymd){
   const el = $(id);
   el.innerHTML = "";
 
-  // header da coluna clicável
+  // header clicável
   const col = el.closest(".col");
   if (col){
     const head = col.querySelector(".colHead");
@@ -282,7 +300,7 @@ function renderList(id, list, bucket, ymd){
     return;
   }
 
-  // ordena por responsável + atividade
+  // ordena
   list = list.slice().sort((a,b)=>{
     const ar = String(a.responsavelNome || a.responsavelEmail || "").toLowerCase();
     const br = String(b.responsavelNome || b.responsavelEmail || "").toLowerCase();
@@ -339,21 +357,20 @@ async function bootstrap(){
   $("btnToday").onclick = ()=> {
     const now = new Date();
     monthRef = new Date(now.getFullYear(), now.getMonth(), 1);
-    renderCalendar();
-    showDayPanel(ymdFromDate(now)); // hoje abre o grid e oculta calendário
+    showDayPanel(ymdFromDate(now)); // hoje já abre o painel do dia
   };
 
   $("btnRefresh").onclick = ()=> loadTasks();
+
+  // estado inicial
+  const dp = $("dayPanel"); if (dp) dp.style.display = "none";
+  const cp = $("calPanel"); if (cp) cp.style.display = "block";
 
   await loadTasks();
 
   const now = new Date();
   selectedYMD = null;
   monthRef = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  // começa mostrando calendário
-  $("dayPanel").style.display = "none";
-  $("calPanel").style.display = "block";
 
   setAlerts(tasks);
   renderCalendar();
@@ -367,8 +384,9 @@ async function loadTasks(){
   setAlerts(tasks);
   renderCalendar();
 
-  // se estiver no modo dia, re-renderiza o painel
-  if ($("dayPanel").style.display !== "none" && selectedYMD) {
+  // se estiver no modo dia, re-renderiza
+  const dp = $("dayPanel");
+  if (dp && dp.style.display !== "none" && selectedYMD) {
     renderDayDetails(selectedYMD);
   }
 }
