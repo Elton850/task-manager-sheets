@@ -4,6 +4,7 @@ let users = [];
 let tasks = [];
 let editingId = null;
 let modalMode = "EDIT"; // EDIT | VIEW | USER_OBS
+let allowedRecorrencias = []; // vindo da rule da área (USER)
 
 const $ = (id) => document.getElementById(id);
 
@@ -377,13 +378,32 @@ async function bootstrap() {
     const u = document.getElementById("usersLink");
     if (u) u.style.display = "block";
   }
+  
+  const rulesLink = document.getElementById("rulesLink");
+  if (rulesLink && (me.role === "ADMIN" || me.role === "LEADER")) {
+    rulesLink.style.display = "block";
+  }
 
   if (me.role === "USER") {
     const btnNew = document.getElementById("btnNew");
-    if (btnNew) btnNew.style.display = "none";
+    if (btnNew) btnNew.style.display = "inline-block";
   }
 
-  const [lres, ures] = await Promise.all([api("/api/lookups"), api("/api/users")]);
+  const calls = [api("/api/lookups"), api("/api/users")];
+  if (me.role === "USER") calls.push(api("/api/rules"));
+
+  const [lres, ures, rres] = await Promise.all(calls);
+
+  lookups = (lres && lres.ok && lres.lookups) ? lres.lookups : {};
+  users = (ures && ures.ok && ures.users) ? ures.users : [];
+
+  allowedRecorrencias = [];
+  if (me.role === "USER") {
+    allowedRecorrencias = (rres && rres.ok && Array.isArray(rres.allowedRecorrencias))
+      ? rres.allowedRecorrencias
+      : [];
+  }
+
   lookups = (lres && lres.ok && lres.lookups) ? lres.lookups : {};
   users = (ures && ures.ok && ures.users) ? ures.users : [];
 
@@ -416,7 +436,15 @@ async function bootstrap() {
   }
 
   setupCompetenciaSelects();
-  fillSelect($("mRecorrencia"), lookups.RECORRENCIA || []);
+  
+  if (me.role === "USER") {
+  // USER: somente permitidas
+  fillSelect($("mRecorrencia"), allowedRecorrencias || [], { empty: "Selecione..." });
+  } else {
+    // ADMIN/LEADER: todas
+    fillSelect($("mRecorrencia"), lookups.RECORRENCIA || []);
+  }
+
   fillSelect($("mTipo"), lookups.TIPO || []);
   fillSelect($("mStatus"), lookups.STATUS || []);
   fillUsersSelect($("mResp"), users);
@@ -659,27 +687,65 @@ function setModalMode(mode) {
     if (obs) obs.disabled = false;
     if (save) save.style.display = "inline-block";
   }
+
+  if (mode === "USER_NEW") {
+    // USER pode criar: competência, recorrência (filtrada), tipo, atividade, prazo, obs
+    ["mCompMes","mCompAno","mRecorrencia","mTipo","mAtividade","mPrazo","mObs"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = false;
+    });
+
+    // trava campos que USER não mexe na criação
+    ["mStatus","mResp","mRealizado"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = true;
+    });
+
+    if (save) save.style.display = "inline-block";
+    if (clear) clear.style.display = "none";
+    return;
+  }
 }
 
 function openModalNew() {
-  if (me.role === "USER") return;
-
   editingId = null;
   $("mTitle").textContent = "Nova task";
   $("mHint").textContent = "";
 
   setCompetenciaDefaultToday();
 
-  $("mRecorrencia").value = (lookups.RECORRENCIA || [])[0] || "";
+  // defaults
   $("mTipo").value = (lookups.TIPO || [])[0] || "";
-  $("mStatus").value = (lookups.STATUS || [])[0] || "";
-
-  $("mResp").value = me.email;
-
   $("mAtividade").value = "";
   $("mPrazo").value = "";
-  $("mRealizado").value = "";
   $("mObs").value = "";
+  $("mRealizado").value = "";
+
+  if (me.role === "USER") {
+    // Recorrência: somente permitidas
+    fillSelect($("mRecorrencia"), allowedRecorrencias || [], { empty: "Selecione..." });
+
+    if (!allowedRecorrencias || !allowedRecorrencias.length) {
+      $("mHint").textContent = "Sua área não tem recorrências liberadas. Fale com o Leader/Admin.";
+      // trava salvar
+      setModalMode("VIEW");
+      $("modal").classList.add("show");
+      return;
+    }
+
+    // trava/define status e responsável
+    $("mStatus").value = "Em Andamento";
+    $("mResp").value = me.email;
+
+    setModalMode("USER_NEW");
+    $("modal").classList.add("show");
+    return;
+  }
+
+  // ADMIN/LEADER mantém comportamento antigo
+  $("mRecorrencia").value = (lookups.RECORRENCIA || [])[0] || "";
+  $("mStatus").value = (lookups.STATUS || [])[0] || "";
+  $("mResp").value = me.email;
 
   setModalMode("EDIT");
   $("modal").classList.add("show");
@@ -743,40 +809,51 @@ function closeModal() {
 async function saveTask() {
   $("mHint").textContent = "Salvando...";
 
-  if (me.role === "USER") {
-    if (!editingId) { $("mHint").textContent = "Task inválida."; return; }
-    const payload = { observacoes: ($("mObs").value || "").trim() };
-    const res = await api(`/api/tasks/${editingId}`, { method: "PUT", body: JSON.stringify(payload) });
+ if (me.role === "USER") {
+    // 1) se estiver editando uma task existente: continua só OBS
+    if (editingId) {
+      const payload = { observacoes: ($("mObs").value || "").trim() };
+      const res = await api(`/api/tasks/${editingId}`, { method: "PUT", body: JSON.stringify(payload) });
+      if (!res.ok) { $("mHint").textContent = res.error || "Erro"; return; }
+      closeModal();
+      if (res.task) upsertLocalTask(res.task);
+      renderFromLocal();
+      return;
+    }
+
+    // 2) criação nova (POST) com rules já aplicadas no select
+    const competenciaYm = `${$("mCompAno").value}-${$("mCompMes").value}`;
+    const recorrencia = $("mRecorrencia").value || "";
+    const tipo = $("mTipo").value || "";
+    const atividade = ($("mAtividade").value || "").trim();
+    const prazo = $("mPrazo").value || "";
+    const observacoes = ($("mObs").value || "").trim();
+
+    if (!recorrencia) { $("mHint").textContent = "Selecione a recorrência."; return; }
+    if (!tipo) { $("mHint").textContent = "Selecione o tipo."; return; }
+    if (!atividade) { $("mHint").textContent = "Atividade é obrigatória."; return; }
+
+    const payload = {
+      competenciaYm,
+      recorrencia,
+      tipo,
+      status: "Em Andamento",
+      responsavelEmail: me.email,
+      atividade,
+      prazo,
+      realizado: "",
+      observacoes,
+    };
+
+    const res = await api(`/api/tasks`, { method: "POST", body: JSON.stringify(payload) });
     if (!res.ok) { $("mHint").textContent = res.error || "Erro"; return; }
+
     closeModal();
     if (res.task) upsertLocalTask(res.task);
+    else await loadTasks();
     renderFromLocal();
     return;
   }
-
-  const competenciaYm = `${$("mCompAno").value}-${$("mCompMes").value}`;
-  const payload = {
-    competenciaYm,
-    recorrencia: $("mRecorrencia").value || "",
-    tipo: $("mTipo").value || "",
-    status: $("mStatus").value || "",
-    responsavelEmail: $("mResp").value || "",
-    atividade: ($("mAtividade").value || "").trim(),
-    prazo: $("mPrazo").value || "",
-    realizado: $("mRealizado").value ? String($("mRealizado").value).slice(0, 10) : "",
-    observacoes: ($("mObs").value || "").trim(),
-  };
-
-  const res = editingId
-    ? await api(`/api/tasks/${editingId}`, { method: "PUT", body: JSON.stringify(payload) })
-    : await api(`/api/tasks`, { method: "POST", body: JSON.stringify(payload) });
-
-  if (!res.ok) { $("mHint").textContent = res.error || "Erro"; return; }
-
-  closeModal();
-  if (res.task) upsertLocalTask(res.task);
-  else await loadTasks();
-  renderFromLocal();
 }
 
 async function clearRealizado() {

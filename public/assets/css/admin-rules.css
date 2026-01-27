@@ -1,0 +1,553 @@
+/* ===========================
+   Admin Rules • single CSS
+   Visual baseado no app.css
+   =========================== */
+
+/* ---- Reset / Base ---- */
+*,
+*::before,
+*::after{ box-sizing: border-box; }
+
+:root{
+  /* Surfaces (igual app.css) */
+  --bg: #0b1020;
+  --panel: rgba(255,255,255,.06);
+  --panel-2: rgba(255,255,255,.085);
+  --panel-3: rgba(255,255,255,.12);
+
+  /* Borders / Lines */
+  --line: rgba(255,255,255,.10);
+  --line-2: rgba(255,255,255,.14);
+
+  /* Text */
+  --text: rgba(255,255,255,.92);
+  --muted: rgba(255,255,255,.66);
+  --subtle: rgba(255,255,255,.48);
+
+  /* Accent */
+  --a1: #7c3aed; /* violet */
+  --a2: #22c55e; /* green */
+  --a3: #06b6d4; /* cyan */
+
+  /* Radii / Shadow */
+  --r-lg: 18px;
+  --r-md: 14px;
+  --r-sm: 10px;
+
+  --shadow-1: 0 10px 30px rgba(0,0,0,.35);
+  --shadow-2: 0 12px 40px rgba(0,0,0,.45);
+  --shadow-in: inset 0 1px 0 rgba(255,255,255,.06);
+
+  /* Typography */
+  --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+
+  /* Focus */
+  --focus: 0 0 0 3px rgba(124,58,237,.35);
+
+  /* spacing */
+  --gap: 14px;
+  --pad: 18px;
+}
+
+html, body{ height: 100%; }
+
+body{
+  margin: 0;
+  font-family: var(--font);
+  color: var(--text);
+  background:
+    radial-gradient(1200px 600px at 20% -10%, rgba(124,58,237,.25), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(6,182,212,.18), transparent 60%),
+    radial-gradient(800px 500px at 70% 120%, rgba(34,197,94,.10), transparent 60%),
+    linear-gradient(180deg, #070b16, #0b1020 60%, #070b16);
+  overflow-x: hidden;
+}
+
+/* Improve text rendering */
+body, button, input, select, textarea{
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a{ color: inherit; text-decoration: none; }
+button{ font-family: inherit; }
+
+::selection{ background: rgba(124,58,237,.35); }
+
+:focus-visible{
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: 10px;
+}
+
+/* Scrollbar */
+*{ scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
+*::-webkit-scrollbar{ width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,.16);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover{ background: rgba(255,255,255,.22); }
+
+/* ---- Layout ---- */
+.layout{
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 0;
+}
+
+/* Sidebar (igual app.css) */
+.sidebar{
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  padding: 18px 16px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)),
+    radial-gradient(800px 400px at 10% 0%, rgba(124,58,237,.20), transparent 55%);
+  border-right: 1px solid var(--line);
+  box-shadow: var(--shadow-in);
+  overflow: hidden;
+}
+
+.sidebar::before{
+  content:"";
+  position:absolute;
+  inset: -1px;
+  pointer-events:none;
+  background:
+    radial-gradient(500px 250px at 20% 0%, rgba(6,182,212,.20), transparent 60%),
+    radial-gradient(500px 260px at 80% 20%, rgba(124,58,237,.18), transparent 60%);
+  opacity: .6;
+  filter: blur(1px);
+}
+
+.brand{
+  position: relative;
+  z-index: 1;
+  font-weight: 800;
+  letter-spacing: .2px;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand::before{
+  content:"";
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--a1), var(--a3));
+  box-shadow: 0 0 0 4px rgba(124,58,237,.18);
+}
+
+.sub{
+  position: relative;
+  z-index: 1;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.35;
+  padding: 10px 12px;
+  background: rgba(0,0,0,.18);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.nav{
+  position: relative;
+  z-index: 1;
+  margin-top: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.nav a{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: rgba(255,255,255,.78);
+  border: 1px solid transparent;
+  background: transparent;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.nav a:hover{
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.08);
+  transform: translateY(-1px);
+  color: rgba(255,255,255,.92);
+}
+
+.nav a.active{
+  background: linear-gradient(135deg, rgba(124,58,237,.28), rgba(6,182,212,.12));
+  border-color: rgba(124,58,237,.35);
+  color: rgba(255,255,255,.96);
+  box-shadow: 0 10px 26px rgba(124,58,237,.12);
+}
+
+.nav a#btnLogout{
+  margin-top: 10px;
+  color: rgba(255,255,255,.72);
+}
+
+/* Main */
+.main{
+  padding: 22px 22px 32px;
+  min-width: 0;
+}
+
+/* Topbar */
+.topbar{
+  display:flex;
+  align-items:flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.h1{
+  font-size: 22px;
+  font-weight: 820;
+  letter-spacing: .2px;
+}
+
+.topbar .sub{
+  margin-top: 6px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+}
+
+/* Buttons */
+.btn{
+  appearance: none;
+  border: 1px solid rgba(255,255,255,.12);
+  background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06));
+  color: rgba(255,255,255,.92);
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 650;
+  letter-spacing: .2px;
+  transition: transform .12s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease, opacity .12s ease;
+  box-shadow: var(--shadow-in);
+}
+
+.btn:hover{
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,.18);
+  background: linear-gradient(180deg, rgba(255,255,255,.13), rgba(255,255,255,.07));
+}
+
+.btn:active{ transform: translateY(0); opacity: .92; }
+
+.btn.ghost{
+  background: rgba(0,0,0,.18);
+  border-color: rgba(255,255,255,.10);
+  color: rgba(255,255,255,.84);
+}
+
+.btn.ghost:hover{
+  background: rgba(0,0,0,.26);
+  border-color: rgba(255,255,255,.16);
+}
+
+.btn[disabled],
+.btn:disabled{
+  cursor: not-allowed;
+  opacity: .55;
+  transform: none;
+}
+
+/* Cards */
+.card{
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.05));
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: 16px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  margin-bottom: 14px;
+  overflow: hidden;
+  position: relative;
+}
+
+.card::after{
+  content:"";
+  position:absolute;
+  inset:-2px;
+  pointer-events:none;
+  background: radial-gradient(800px 220px at 15% 0%, rgba(124,58,237,.12), transparent 55%);
+  opacity: .9;
+}
+
+/* Grid base */
+.grid{
+  position: relative;
+  z-index: 1;
+  display:grid;
+  gap: 12px;
+  align-items: end;
+}
+
+/* Fields */
+.field{
+  display:flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field label{
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: .2px;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea{
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.24);
+  color: rgba(255,255,255,.92);
+  outline: none;
+  transition: border-color .12s ease, background .12s ease, box-shadow .12s ease;
+  box-shadow: var(--shadow-in);
+}
+
+textarea{ resize: vertical; min-height: 86px; }
+input::placeholder, textarea::placeholder{ color: rgba(255,255,255,.42); }
+select{ cursor: pointer; }
+
+input:focus, select:focus, textarea:focus{
+  border-color: rgba(124,58,237,.45);
+  box-shadow: var(--focus), var(--shadow-in);
+  background: rgba(0,0,0,.28);
+}
+
+input:disabled, select:disabled, textarea:disabled{
+  opacity: .62;
+  cursor: not-allowed;
+  background: rgba(0,0,0,.18);
+}
+
+/* ======= REGRAS: layout melhorado (sem “bagunça”) ======= */
+
+/* 3 colunas: Área | Recorrências | Botões */
+.rulesGrid{
+  grid-template-columns: 280px 1fr 240px;
+  align-items: start;
+}
+
+/* Botões “colados” e alinhados ao bloco */
+.rulesGrid .field:last-child{
+  align-self: start;
+  display: grid;
+  gap: 10px;
+  padding-top: 22px; /* alinha com o label da lista */
+}
+.rulesGrid .field:last-child .btn{
+  width: 100%;
+  height: 44px;
+  border-radius: 12px;
+}
+
+/* Lista de recorrências mais “app.css-like” (menos inflada) */
+.recList{
+  display: grid;
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.18);
+  box-shadow: var(--shadow-in);
+}
+
+.recItem{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.14);
+  box-shadow: var(--shadow-in);
+  user-select: none;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease;
+}
+
+.recItem:hover{
+  transform: translateY(-1px);
+  background: rgba(0,0,0,.20);
+  border-color: rgba(255,255,255,.16);
+}
+
+.recItem input{
+  width: 18px;
+  height: 18px;
+  accent-color: var(--a1);
+}
+
+/* Hints menores */
+.hint{ position: relative; z-index: 1; margin-top: 10px; color: rgba(255,255,255,.62); font-size: 12.5px; padding: 8px 4px 0; }
+.hint.mini{ padding: 0; margin-top: 8px; color: rgba(255,255,255,.58); }
+
+/* Audit KPIs (mesma pegada do app.css) */
+.auditGrid{
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  align-items: stretch;
+}
+
+.kpi{
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: rgba(0,0,0,.20);
+  border: 1px solid rgba(255,255,255,.08);
+  box-shadow: var(--shadow-in);
+  overflow: hidden;
+  position: relative;
+}
+
+.kpi::before{
+  content:"";
+  position:absolute;
+  inset: 0;
+  background: radial-gradient(180px 90px at 20% 20%, rgba(6,182,212,.18), transparent 60%);
+  opacity: .85;
+  pointer-events:none;
+}
+
+.kpi .k{
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: .35px;
+  text-transform: uppercase;
+}
+
+.kpi .v{
+  margin-top: 6px;
+  font-size: 18px; /* menor que app.css (pra não estourar) */
+  font-weight: 850;
+  letter-spacing: .2px;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 1100px){
+  .rulesGrid{ grid-template-columns: 1fr; }
+  .rulesGrid .field:last-child{
+    padding-top: 0;
+    grid-auto-flow: column;
+    justify-content: end;
+  }
+  .rulesGrid .field:last-child .btn{
+    width: auto;
+    min-width: 170px;
+  }
+  .recList{ grid-template-columns: repeat(2, minmax(170px, 1fr)); }
+  .auditGrid{ grid-template-columns: 1fr; }
+}
+
+@media (max-width: 860px){
+  .layout{ grid-template-columns: 1fr; }
+  .sidebar{
+    position: relative;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .main{ padding: 16px; }
+  .topbar{ flex-direction: column; align-items: stretch; }
+  .rulesGrid .field:last-child{
+    grid-auto-flow: row;
+    justify-content: stretch;
+  }
+  .rulesGrid .field:last-child .btn{
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 620px){
+  .recList{ grid-template-columns: 1fr; }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce){
+  *{ transition: none !important; scroll-behavior: auto !important; }
+}
+
+/* ===== FIX: botões lado a lado + recList não invade ===== */
+
+/* 1) botões em linha (Salvar | Recarregar) */
+.rulesGrid .field:last-child{
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 12px !important;
+  padding-top: 22px !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+}
+
+.rulesGrid .field:last-child .btn{
+  width: 100% !important;
+  height: 44px !important;
+}
+
+/* garante 2 botões iguais (cada um ocupa metade) */
+.rulesGrid .field:last-child .btn{
+  flex: 1 1 0 !important;
+}
+
+/* 2) impede a lista de “passar do container” */
+.recList{
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important; /* CHAVE: minmax(0,1fr) */
+}
+
+/* evita o texto forçar a coluna (se tiver label grande) */
+.recItem{
+  min-width: 0 !important;
+}
+.recItem span{
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* 3) em telas menores, volta comportamento responsivo */
+@media (max-width: 1100px){
+  .rulesGrid .field:last-child{
+    justify-content: stretch !important;
+  }
+  .recList{
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+@media (max-width: 620px){
+  .rulesGrid .field:last-child{
+    flex-direction: column !important;
+  }
+  .recList{
+    grid-template-columns: 1fr !important;
+  }
+}

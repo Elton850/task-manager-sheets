@@ -86,4 +86,14 @@ export const sheets = {
     const data = await callSheets<{ ok: true; user: any }>("users.setActive", { email, active, actorEmail });
     return data.user;
   },
+
+  async getRuleByArea(area: string) {
+    const data = await callSheets<{ ok: true; rule: any }>("rules.getByArea", { area });
+    return data.rule;
+  },
+
+  async upsertRule(rule: any, actorEmail: string) {
+    const data = await callSheets<{ ok: true; rule: any }>("rules.upsert", { rule, actorEmail });
+    return data.rule;
+  }
 };

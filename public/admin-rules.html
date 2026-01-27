@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin • Rules</title>
+  <link rel="stylesheet" href="/public/assets/css/admin-rules.css" />
+</head>
+
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">Task Manager</div>
+      <div class="sub" id="meLine">Carregando...</div>
+
+      <nav class="nav">
+        <a href="/calendar">Calendário</a>
+        <a href="/app">Tasks</a>
+
+        <!-- Você já usa links admin/users assim no admin.html -->
+        <a id="adminLink" href="/admin" style="display:none;">Admin • Config</a>
+        <a id="usersLink" href="/admin/users" style="display:none;">Admin • Usuários</a>
+
+        <a id="rulesLink" href="/admin/rules" class="active" style="display:none;">Admin • Rules</a>
+
+        <a href="#" id="btnLogout">Sair</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <div class="h1">Rules (Recorrências por Área)</div>
+          <div class="sub">Defina quais recorrências os USERS da área podem usar</div>
+        </div>
+      </div>
+
+      <section class="card">
+        <div class="grid rulesGrid">
+          <div class="field">
+            <label>Área</label>
+            <select id="area"></select>
+            <div class="hint mini" id="areaHint"></div>
+          </div>
+
+          <div class="field span2">
+            <label>Recorrências permitidas</label>
+            <div id="recList" class="recList"></div>
+            <div class="hint mini" id="recHint"></div>
+          </div>
+
+          <div class="field">
+            <label>&nbsp;</label>
+            <button class="btn" id="btnSave">Salvar Rule</button>
+            <button class="btn ghost" id="btnReload">Recarregar</button>
+          </div>
+        </div>
+
+        <div class="hint" id="hint"></div>
+      </section>
+
+      <section class="card">
+        <div class="sub">Audit</div>
+        <div style="height:10px"></div>
+
+        <div class="grid auditGrid">
+          <div class="kpi">
+            <div class="k">Última atualização</div>
+            <div class="v" id="lastAt">-</div>
+          </div>
+
+          <div class="kpi">
+            <div class="k">Atualizado por</div>
+            <div class="v" id="lastBy">-</div>
+          </div>
+
+          <div class="kpi">
+            <div class="k">Qtd. recorrências</div>
+            <div class="v" id="count">0</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/public/assets/js/shared.js"></script>
+  <script src="/public/assets/js/admin-rules-page.js"></script>
+</body>
+</html>

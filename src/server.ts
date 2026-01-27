@@ -289,6 +289,41 @@ app.get("/admin/users", (req, res) => {
   ensureCsrfCookie(req, res);
   res.sendFile(path.join(process.cwd(), "public/users.html"));
 });
+app.get("/admin/rules", (req, res) => {
+  ensureCsrfCookie(req, res);
+  res.sendFile(path.join(process.cwd(), "public/admin-rules.html"));
+});
+app.get(
+  "/api/rules/by-area",
+  authMiddleware,
+  a(async (req: any, res: any) => {
+    const me = req.user as AuthedUser;
+    if (me.role !== "ADMIN" && me.role !== "LEADER") {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+    }
+
+    const area = String(req.query.area || "").trim();
+    if (!area) return res.status(400).json({ ok: false, error: "area obrigatória" });
+
+    // LEADER só pode ver a própria área
+    if (me.role === "LEADER" && String(area) !== String(me.area || "")) {
+      return res.status(403).json({ ok: false, error: "Leader não pode acessar regra fora da sua área." });
+    }
+
+    const rule = await sheets.getRuleByArea(area);
+
+    res.json({
+      ok: true,
+      rule: {
+        area,
+        allowedRecorrencias: Array.isArray(rule?.allowedRecorrencias) ? rule.allowedRecorrencias : [],
+        updatedAt: rule?.updatedAt || "",
+        updatedBy: rule?.updatedBy || "",
+      },
+    });
+  })
+);
+
 
 /* =========================
    CSRF endpoint (opcional)
@@ -501,7 +536,6 @@ app.post(
   })
 );
 
-
 /* LOOKUPS */
 app.get(
   "/api/lookups",
@@ -543,6 +577,46 @@ app.put(
       me.email
     );
     res.json({ ok: true, lookups });
+  })
+);
+
+/*RULES*/
+app.get(
+  "/api/rules",
+  authMiddleware,
+  a(async (req: any, res: any) => {
+    const me = req.user as AuthedUser;
+
+    // regra sempre é por "área"
+    const area = String(me.area || "").trim();
+    const rule = await sheets.getRuleByArea(area);
+
+    res.json({
+      ok: true,
+      area,
+      allowedRecorrencias: Array.isArray(rule?.allowedRecorrencias) ? rule.allowedRecorrencias : [],
+    });
+  })
+);
+
+app.put(
+  "/api/rules",
+  authMiddleware,
+  a(async (req: any, res: any) => {
+    const me = req.user as AuthedUser;
+    if (me.role !== "ADMIN" && me.role !== "LEADER") {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+    }
+
+    const targetArea = mustString(req.body.area || me.area, "area");
+    if (me.role === "LEADER" && String(targetArea) !== String(me.area || "")) {
+      return res.status(403).json({ ok: false, error: "Leader não pode alterar regra fora da sua área." });
+    }
+
+    const allowedRecorrencias = Array.isArray(req.body.allowedRecorrencias) ? req.body.allowedRecorrencias : [];
+    const rule = await sheets.upsertRule({ area: targetArea, allowedRecorrencias }, me.email);
+
+    res.json({ ok: true, rule });
   })
 );
 
@@ -594,6 +668,30 @@ app.post(
     const area = u?.area ? String(u.area) : String(me.area || "");
     if (me.role === "LEADER" && area !== String(me.area || "")) {
       return res.status(403).json({ ok: false, error: "Leader não pode criar tarefa fora da sua área." });
+    }
+
+    // 1) recorrência deve existir no LOOKUP
+    const lkp = await sheets.listLookups();
+    const validRec = (lkp?.RECORRENCIA || []).map((x: any) => String(x).trim());
+    const rec = String(req.body.recorrencia || "").trim();
+
+    if (rec && !validRec.includes(rec)) {
+      return res.status(400).json({ ok: false, error: "Recorrência inválida (não existe no LOOKUPS)." });
+    }
+
+    // 2) USER só pode criar com recorrência permitida pela regra da área
+    if (me.role === "USER") {
+      const rule = await sheets.getRuleByArea(String(me.area || ""));
+      const allowed = (rule?.allowedRecorrencias || []).map((x: any) => String(x).trim()).filter(Boolean);
+
+      // se não tem regra cadastrada, bloqueia criação (pra forçar config)
+      if (!allowed.length) {
+        return res.status(403).json({ ok: false, error: "Sua área ainda não tem recorrências liberadas. Fale com o Leader/Admin." });
+      }
+
+      if (!allowed.includes(rec)) {
+        return res.status(403).json({ ok: false, error: "Recorrência não permitida para sua área." });
+      }
     }
 
     const competenciaYm = normYm(req.body.competenciaYm || req.body.competencia);

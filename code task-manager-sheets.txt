@@ -136,6 +136,9 @@ function usersList() {
     area: String(u.area || ''),
     active: String(u.active || '').toUpperCase() === 'TRUE',
     canDelete: String(u.canDelete || '').toUpperCase() === 'TRUE',
+
+    // opcional (não sensível)
+    mustChangePassword: String(u.mustChangePassword || '').toUpperCase() === 'TRUE',
   }));
 }
 
@@ -157,7 +160,7 @@ function usersUpsert(user, actorEmail) {
       const row = idx + 2;
       const before = objs[idx];
 
-      // atualiza apenas campos permitidos
+      // Atualiza campos permitidos (inclui reset/primeiro acesso)
       const patch = {
         nome: user.nome ?? before.nome,
         role: user.role ?? before.role,
@@ -165,10 +168,15 @@ function usersUpsert(user, actorEmail) {
         active: user.active ?? before.active,
         canDelete: user.canDelete ?? before.canDelete,
         passwordHash: user.passwordHash ?? before.passwordHash,
+
+        // novos campos (reset / primeiro acesso)
+        mustChangePassword: user.mustChangePassword ?? before.mustChangePassword,
+        resetCodeHash: user.resetCodeHash ?? before.resetCodeHash,
+        resetCodeExpiresAt: user.resetCodeExpiresAt ?? before.resetCodeExpiresAt,
       };
 
       Object.keys(patch).forEach(k => {
-        if (!map[k]) return;
+        if (!map[k]) return; // só grava se a coluna existir na planilha
         sh.getRange(row, map[k]).setValue(patch[k]);
       });
 
@@ -183,6 +191,11 @@ function usersUpsert(user, actorEmail) {
         active: user.active ?? true,
         canDelete: user.canDelete ?? false,
         passwordHash: String(user.passwordHash || ''),
+
+        // novos campos (reset / primeiro acesso)
+        mustChangePassword: user.mustChangePassword ?? false,
+        resetCodeHash: String(user.resetCodeHash || ''),
+        resetCodeExpiresAt: String(user.resetCodeExpiresAt || ''),
       };
 
       sh.appendRow(headers.map(h => rowObj[h] !== undefined ? rowObj[h] : ''));

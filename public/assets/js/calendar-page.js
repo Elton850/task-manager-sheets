@@ -351,6 +351,11 @@ async function bootstrap(){
     if (u) u.style.display = "block";
   }
 
+  const rulesLink = document.getElementById("rulesLink");
+  if (rulesLink && (me.role === "ADMIN" || me.role === "LEADER")) {
+    rulesLink.style.display = "block";
+  }
+
   $("btnPrev").onclick = ()=> { monthRef = new Date(monthRef.getFullYear(), monthRef.getMonth()-1, 1); renderCalendar(); };
   $("btnNext").onclick = ()=> { monthRef = new Date(monthRef.getFullYear(), monthRef.getMonth()+1, 1); renderCalendar(); };
 

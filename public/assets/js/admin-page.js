@@ -17,6 +17,10 @@ async function bootstrap() {
   if (a) a.style.display = "block";
   const u = document.getElementById("usersLink");
   if (u) u.style.display = "block";
+  const rulesLink = document.getElementById("rulesLink");
+  if (rulesLink && (me.role === "ADMIN" || me.role === "LEADER")) {
+    rulesLink.style.display = "block";
+  }
 
   $("cat").onchange = () => { selected = null; render(); };
   $("add").onclick = addItem;
