@@ -132,3 +132,80 @@ function fmtCompetencia(input) {
   // se não casar, devolve como está (pelo menos não quebra)
   return s;
 }
+
+/* ===== Helpers de SELECT (usados no app-page.js e calendar-page.js) ===== */
+/* ===== Helpers de SELECT (mesmo padrão do app-page.js) ===== */
+
+function fillSelect(selectEl, items, opts = {}) {
+  if (!selectEl) return;
+
+  const {
+    empty = null,
+    selected = null,
+    disabled = false
+  } = opts;
+
+  selectEl.innerHTML = "";
+  selectEl.disabled = !!disabled;
+
+  if (empty !== null) {
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = empty;
+    selectEl.appendChild(o);
+  }
+
+  (items || []).forEach((item) => {
+    const value = typeof item === "string" ? item : item?.value;
+    const label = typeof item === "string" ? item : item?.label ?? item?.value;
+
+    if (!value) return;
+
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = label;
+    selectEl.appendChild(o);
+  });
+
+  if (selected !== null && selected !== undefined) {
+    selectEl.value = selected;
+  }
+}
+
+function fillUsersSelect(selectEl, users, opts = {}) {
+  if (!selectEl) return;
+
+  const {
+    empty = null,
+    selected = null,
+    disabled = false
+  } = opts;
+
+  selectEl.innerHTML = "";
+  selectEl.disabled = !!disabled;
+
+  if (empty !== null) {
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = empty;
+    selectEl.appendChild(o);
+  }
+
+  (users || []).forEach((u) => {
+    if (!u || !u.email) return;
+
+    const o = document.createElement("option");
+    o.value = u.email;
+
+    // mesmo label do app-page.js
+    o.textContent = u.nome
+      ? `${u.nome}`
+      : u.email;
+
+    selectEl.appendChild(o);
+  });
+
+  if (selected !== null && selected !== undefined) {
+    selectEl.value = selected;
+  }
+}

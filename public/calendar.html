@@ -35,6 +35,7 @@
           <div class="monthTitle" id="monthTitle"></div>
           <button class="btn ghost" id="btnNext">→</button>
           <button class="btn ghost" id="btnToday">Hoje</button>
+          <button class="btn" id="btnNew">+ Nova</button>
           <button class="btn ghost" id="btnRefresh">⟳</button>
         </div>
       </div>
@@ -103,6 +104,80 @@
         <div class="hint" id="hint"></div>
       </section>
     </main>
+  </div>
+
+  <!-- MODAL NOVA TASK (mesmos IDs do app / calendar-page.js) -->
+  <div class="modal" id="modal">
+    <div class="box">
+      <div class="mhead">
+        <div class="mtitle" id="mTitle">Nova task</div>
+        <button class="btn ghost" id="mClose">Fechar</button>
+      </div>
+
+      <div class="mbody">
+        <div class="field">
+          <label>Competência (Mês)</label>
+          <select id="mCompMes"></select>
+        </div>
+
+        <div class="field">
+          <label>Competência (Ano)</label>
+          <select id="mCompAno"></select>
+        </div>
+
+        <div class="field">
+          <label>Recorrência</label>
+          <select id="mRecorrencia"></select>
+        </div>
+
+        <div class="field">
+          <label>Tipo</label>
+          <select id="mTipo"></select>
+        </div>
+
+        <div class="field span2">
+          <label>Atividade</label>
+          <input id="mAtividade" maxlength="200" />
+        </div>
+
+        <div class="field">
+          <label>Status</label>
+          <select id="mStatus"></select>
+        </div>
+
+        <div class="field">
+          <label>Responsável</label>
+          <select id="mResp"></select>
+        </div>
+
+        <div class="field">
+          <label>Prazo</label>
+          <input type="date" id="mPrazo" />
+        </div>
+
+        <div class="field">
+          <label>Realizado</label>
+          <input type="datetime-local" id="mRealizado" />
+        </div>
+
+        <div class="field span3">
+          <label>Observações</label>
+          <textarea id="mObs" rows="3" maxlength="1000"></textarea>
+        </div>
+      </div>
+
+      <div class="mfoot">
+        <div>
+          <button class="btn ghost" id="mClearReal">Limpar Realizado</button>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button class="btn ghost" id="mCancel">Cancelar</button>
+          <button class="btn" id="mSave">Salvar</button>
+        </div>
+      </div>
+
+      <div class="hint" id="mHint" style="padding:0 14px 14px"></div>
+    </div>
   </div>
 
   <script src="/public/assets/js/shared.js"></script>
