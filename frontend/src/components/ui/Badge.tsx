@@ -10,39 +10,43 @@ interface BadgeProps {
 }
 
 const variants: Record<BadgeVariant, string> = {
-  blue:   "bg-blue-500/15 text-blue-300 border border-blue-500/30",
-  green:  "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
-  red:    "bg-rose-500/15 text-rose-300 border border-rose-500/30",
-  amber:  "bg-amber-500/15 text-amber-300 border border-amber-500/30",
-  slate:  "bg-slate-500/15 text-slate-300 border border-slate-500/30",
-  indigo: "bg-brand-500/15 text-brand-300 border border-brand-500/30",
-  purple: "bg-purple-500/15 text-purple-300 border border-purple-500/30",
+  blue: "bg-blue-50 text-blue-800 border border-blue-200",
+  green: "bg-emerald-50 text-emerald-800 border border-emerald-200",
+  red: "bg-rose-50 text-rose-800 border border-rose-200",
+  amber: "bg-amber-50 text-amber-800 border border-amber-200",
+  slate: "bg-slate-100 text-slate-700 border border-slate-200",
+  indigo: "bg-brand-50 text-brand-800 border border-brand-200",
+  purple: "bg-brand-50 text-brand-800 border border-brand-200",
 };
 
 export function getStatusVariant(status: string): BadgeVariant {
   switch (status) {
-    case "Em Andamento": return "blue";
-    case "Concluído": return "green";
-    case "Em Atraso": return "red";
-    case "Concluído em Atraso": return "amber";
-    default: return "slate";
+    case "Em Andamento":
+      return "blue";
+    case "Concluído":
+      return "green";
+    case "Em Atraso":
+      return "red";
+    case "Concluído em Atraso":
+      return "amber";
+    default:
+      return "slate";
   }
 }
 
 export function getRoleVariant(role: string): BadgeVariant {
   switch (role) {
-    case "ADMIN": return "purple";
-    case "LEADER": return "indigo";
-    default: return "slate";
+    case "ADMIN":
+      return "indigo";
+    case "LEADER":
+      return "indigo";
+    default:
+      return "slate";
   }
 }
 
 export default function Badge({ children, variant = "slate", size = "sm", className = "" }: BadgeProps) {
   const sizeClass = size === "sm" ? "px-2 py-0.5 text-xs" : "px-2.5 py-1 text-sm";
 
-  return (
-    <span className={`inline-flex items-center rounded-full font-medium ${sizeClass} ${variants[variant]} ${className}`}>
-      {children}
-    </span>
-  );
+  return <span className={`inline-flex items-center rounded-full font-medium ${sizeClass} ${variants[variant]} ${className}`}>{children}</span>;
 }

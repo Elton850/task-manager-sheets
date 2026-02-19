@@ -8,7 +8,7 @@ interface CardProps {
 
 export default function Card({ children, className = "", padding = true }: CardProps) {
   return (
-    <div className={`bg-slate-900 border border-slate-700/60 rounded-xl shadow-sm ${padding ? "p-5" : ""} ${className}`}>
+    <div className={`bg-white border border-slate-200 rounded-xl shadow-sm ${padding ? "p-5" : ""} ${className}`}>
       {children}
     </div>
   );
@@ -18,7 +18,7 @@ export function CardHeader({ title, subtitle, action }: { title: string; subtitl
   return (
     <div className="flex items-start justify-between mb-4">
       <div>
-        <h2 className="text-sm font-semibold text-slate-200">{title}</h2>
+        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
         {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
       </div>
       {action && <div>{action}</div>}

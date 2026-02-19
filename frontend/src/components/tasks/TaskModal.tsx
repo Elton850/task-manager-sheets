@@ -1,59 +1,118 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { Paperclip, Upload, Trash2, ExternalLink } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Textarea from "@/components/ui/Textarea";
 import Badge, { getStatusVariant } from "@/components/ui/Badge";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
-import type { Task, Lookups, User } from "@/types";
+import { useToast } from "@/contexts/ToastContext";
+import { tasksApi } from "@/services/api";
+import type { Task, Lookups, User, TaskEvidence } from "@/types";
 
 interface TaskModalProps {
   open: boolean;
   task?: Task | null;
+  initialData?: Partial<Task>;
   lookups: Lookups;
   users: User[];
+  /** Quando definido (ex: USER), apenas essas recorrências são oferecidas na criação */
+  allowedRecorrencias?: string[];
   onClose: () => void;
-  onSave: (data: Partial<Task>) => Promise<void>;
+  onSave: (data: Partial<Task>) => Promise<Task | void>;
+  onTaskChange?: (task: Task) => void;
   loading?: boolean;
 }
+
+const MAX_EVIDENCE_SIZE = 10 * 1024 * 1024;
 
 function currentYearMonth(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export default function TaskModal({ open, task, lookups, users, onClose, onSave, loading }: TaskModalProps) {
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Falha ao ler arquivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
+export default function TaskModal({
+  open,
+  task,
+  initialData,
+  lookups,
+  users,
+  allowedRecorrencias,
+  onClose,
+  onSave,
+  onTaskChange,
+  loading,
+}: TaskModalProps) {
   const { user } = useAuth();
+  const { toast } = useToast();
   const isEdit = !!task;
+  const isUserOnlyObservacoes = user?.role === "USER" && isEdit;
+  const evidenceInputRef = useRef<HTMLInputElement | null>(null);
 
   const [form, setForm] = useState({
-    competenciaYm: task?.competenciaYm || currentYearMonth(),
-    recorrencia: task?.recorrencia || "",
-    tipo: task?.tipo || "",
-    atividade: task?.atividade || "",
-    responsavelEmail: task?.responsavelEmail || (user?.role === "USER" ? user.email : ""),
-    prazo: task?.prazo || "",
-    realizado: task?.realizado || "",
-    observacoes: task?.observacoes || "",
+    competenciaYm: task?.competenciaYm || initialData?.competenciaYm || currentYearMonth(),
+    recorrencia: task?.recorrencia || initialData?.recorrencia || "",
+    tipo: task?.tipo || initialData?.tipo || "",
+    atividade: task?.atividade || initialData?.atividade || "",
+    responsavelEmail: task?.responsavelEmail || initialData?.responsavelEmail || (user?.role === "USER" ? user.email : ""),
+    prazo: task?.prazo || initialData?.prazo || "",
+    realizado: task?.realizado || initialData?.realizado || "",
+    observacoes: task?.observacoes || initialData?.observacoes || "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [evidences, setEvidences] = useState<TaskEvidence[]>(task?.evidences || []);
+  const [selectedEvidence, setSelectedEvidence] = useState<File | null>(null);
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
+  const [deleteEvidenceTarget, setDeleteEvidenceTarget] = useState<TaskEvidence | null>(null);
+  const [deletingEvidence, setDeletingEvidence] = useState(false);
 
   useEffect(() => {
     if (open) {
       setForm({
-        competenciaYm: task?.competenciaYm || currentYearMonth(),
-        recorrencia: task?.recorrencia || "",
-        tipo: task?.tipo || "",
-        atividade: task?.atividade || "",
-        responsavelEmail: task?.responsavelEmail || (user?.role === "USER" ? user.email : ""),
-        prazo: task?.prazo || "",
-        realizado: task?.realizado || "",
-        observacoes: task?.observacoes || "",
+        competenciaYm: task?.competenciaYm || initialData?.competenciaYm || currentYearMonth(),
+        recorrencia: task?.recorrencia || initialData?.recorrencia || "",
+        tipo: task?.tipo || initialData?.tipo || "",
+        atividade: task?.atividade || initialData?.atividade || "",
+        responsavelEmail: task?.responsavelEmail || initialData?.responsavelEmail || (user?.role === "USER" ? user.email : ""),
+        prazo: task?.prazo || initialData?.prazo || "",
+        realizado: task?.realizado || initialData?.realizado || "",
+        observacoes: task?.observacoes || initialData?.observacoes || "",
       });
       setErrors({});
+      setSelectedEvidence(null);
+      setEvidences(task?.evidences || []);
     }
-  }, [open, task, user]);
+  }, [open, task, user, initialData]);
+
+  useEffect(() => {
+    const loadEvidences = async () => {
+      if (!open || !task?.id) return;
+      try {
+        const { evidences: list } = await tasksApi.listEvidences(task.id);
+        setEvidences(list);
+      } catch {
+        // Keep UI resilient; task editing should still work if evidence loading fails.
+      }
+    };
+    loadEvidences();
+  }, [open, task?.id]);
 
   const set = (field: string, value: string) => {
     setForm(f => ({ ...f, [field]: value }));
@@ -62,16 +121,16 @@ export default function TaskModal({ open, task, lookups, users, onClose, onSave,
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
-    if (!form.competenciaYm) errs.competenciaYm = "Competência é obrigatória";
-    if (!form.recorrencia) errs.recorrencia = "Recorrência é obrigatória";
-    if (!form.tipo) errs.tipo = "Tipo é obrigatório";
-    if (!form.atividade.trim()) errs.atividade = "Descrição da atividade é obrigatória";
-    if (form.atividade.length > 200) errs.atividade = "Máximo 200 caracteres";
-    if (user?.role !== "USER" && !form.responsavelEmail) errs.responsavelEmail = "Responsável é obrigatório";
-    if (form.observacoes.length > 1000) errs.observacoes = "Máximo 1000 caracteres";
-
-    if (form.prazo && form.realizado && form.realizado < form.prazo) {
-      // This is valid (early completion), no error
+    if (isUserOnlyObservacoes) {
+      if (form.observacoes.length > 1000) errs.observacoes = "Máximo 1000 caracteres";
+    } else {
+      if (!form.competenciaYm) errs.competenciaYm = "Competência é obrigatória";
+      if (!form.recorrencia) errs.recorrencia = "Recorrência é obrigatória";
+      if (!form.tipo) errs.tipo = "Tipo é obrigatório";
+      if (!form.atividade.trim()) errs.atividade = "Descrição da atividade é obrigatória";
+      if (form.atividade.length > 200) errs.atividade = "Máximo 200 caracteres";
+      if (user?.role !== "USER" && !form.responsavelEmail) errs.responsavelEmail = "Responsável é obrigatório";
+      if (form.observacoes.length > 1000) errs.observacoes = "Máximo 1000 caracteres";
     }
 
     setErrors(errs);
@@ -80,22 +139,85 @@ export default function TaskModal({ open, task, lookups, users, onClose, onSave,
 
   const handleSubmit = async () => {
     if (!validate()) return;
-    await onSave({
-      ...form,
-      responsavelEmail: user?.role === "USER" ? user.email : form.responsavelEmail,
-    });
+
+    // USER em edição só envia observações (backend ignora o resto)
+    const payload: Partial<Task> = isUserOnlyObservacoes
+      ? { observacoes: form.observacoes }
+      : {
+          ...form,
+          responsavelEmail: user?.role === "USER" ? user.email : form.responsavelEmail,
+        };
+
+    const saved = await onSave(payload);
+
+    if (saved?.evidences) {
+      setEvidences(saved.evidences);
+      onTaskChange?.(saved);
+    }
   };
 
-  // Filter users for LEADER (only their area)
-  const selectableUsers = user?.role === "LEADER"
-    ? users.filter(u => u.area === user.area)
-    : users;
+  const handleUploadEvidence = async () => {
+    if (!task?.id) {
+      toast("Salve a tarefa antes de anexar evidências.", "warning");
+      return;
+    }
+    if (!selectedEvidence) {
+      toast("Selecione um arquivo para anexar.", "warning");
+      return;
+    }
+    if (selectedEvidence.size > MAX_EVIDENCE_SIZE) {
+      toast("Arquivo excede 10MB.", "warning");
+      return;
+    }
 
-  const recorrenciaOptions = (lookups.RECORRENCIA || []).map(v => ({ value: v, label: v }));
+    setUploadingEvidence(true);
+    try {
+      const contentBase64 = await fileToBase64(selectedEvidence);
+      const { task: updatedTask } = await tasksApi.uploadEvidence(task.id, {
+        fileName: selectedEvidence.name,
+        mimeType: selectedEvidence.type || "application/octet-stream",
+        contentBase64,
+      });
+
+      setEvidences(updatedTask.evidences || []);
+      onTaskChange?.(updatedTask);
+      setSelectedEvidence(null);
+      if (evidenceInputRef.current) evidenceInputRef.current.value = "";
+      toast("Evidência anexada com sucesso.", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao anexar evidência", "error");
+    } finally {
+      setUploadingEvidence(false);
+    }
+  };
+
+  const handleDeleteEvidence = async () => {
+    if (!task?.id || !deleteEvidenceTarget) return;
+
+    setDeletingEvidence(true);
+    try {
+      const { task: updatedTask } = await tasksApi.deleteEvidence(task.id, deleteEvidenceTarget.id);
+      setEvidences(updatedTask.evidences || []);
+      onTaskChange?.(updatedTask);
+      toast("Evidência removida.", "success");
+      setDeleteEvidenceTarget(null);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao remover evidência", "error");
+    } finally {
+      setDeletingEvidence(false);
+    }
+  };
+
+  const selectableUsers = user?.role === "LEADER" ? users.filter(u => u.area === user.area) : users;
+
+  const allRecorrencias = lookups.RECORRENCIA || [];
+  const recorrenciaOptions = (allowedRecorrencias && allowedRecorrencias.length > 0
+    ? allRecorrencias.filter(r => allowedRecorrencias.includes(r))
+    : allRecorrencias
+  ).map(v => ({ value: v, label: v }));
   const tipoOptions = (lookups.TIPO || []).map(v => ({ value: v, label: v }));
   const userOptions = selectableUsers.map(u => ({ value: u.email, label: `${u.nome} (${u.area})` }));
 
-  // Generate YM options (6 months back + 6 months forward)
   const ymOptions = Array.from({ length: 13 }, (_, i) => {
     const d = new Date();
     d.setMonth(d.getMonth() - 6 + i);
@@ -109,7 +231,6 @@ export default function TaskModal({ open, task, lookups, users, onClose, onSave,
       open={open}
       onClose={onClose}
       title={isEdit ? "Editar Tarefa" : "Nova Tarefa"}
-      subtitle={isEdit && task?.status ? undefined : undefined}
       size="lg"
       footer={
         <>
@@ -118,14 +239,22 @@ export default function TaskModal({ open, task, lookups, users, onClose, onSave,
               <Badge variant={getStatusVariant(task.status)}>{task.status}</Badge>
             </div>
           )}
-          <Button variant="outline" onClick={onClose} disabled={loading}>Cancelar</Button>
+          <Button variant="outline" onClick={onClose} disabled={loading}>
+            Cancelar
+          </Button>
           <Button onClick={handleSubmit} loading={loading}>
             {isEdit ? "Salvar alterações" : "Criar tarefa"}
           </Button>
         </>
       }
     >
-      <div className="space-y-4">
+      <div className="space-y-5">
+        {isUserOnlyObservacoes && (
+          <p className="text-sm text-slate-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2">
+            Como usuário, você só pode editar as <strong>Observações</strong> desta tarefa. Para marcar como concluída, use o ícone ✓ na lista.
+          </p>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select
             label="Competência"
@@ -134,6 +263,7 @@ export default function TaskModal({ open, task, lookups, users, onClose, onSave,
             onChange={e => set("competenciaYm", e.target.value)}
             options={ymOptions}
             error={errors.competenciaYm}
+            disabled={isUserOnlyObservacoes}
           />
 
           <Select
@@ -144,6 +274,7 @@ export default function TaskModal({ open, task, lookups, users, onClose, onSave,
             options={recorrenciaOptions}
             placeholder="Selecione..."
             error={errors.recorrencia}
+            disabled={isUserOnlyObservacoes}
           />
 
           <Select
@@ -154,6 +285,7 @@ export default function TaskModal({ open, task, lookups, users, onClose, onSave,
             options={tipoOptions}
             placeholder="Selecione..."
             error={errors.tipo}
+            disabled={isUserOnlyObservacoes}
           />
 
           {user?.role !== "USER" ? (
@@ -168,9 +300,9 @@ export default function TaskModal({ open, task, lookups, users, onClose, onSave,
             />
           ) : (
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-slate-300">Responsável</label>
-              <div className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-slate-400">
-                {user.nome} <span className="text-slate-600">(você)</span>
+              <label className="text-sm font-medium text-slate-700">Responsável</label>
+              <div className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-sm text-slate-700">
+                {user.nome} <span className="text-slate-500">(você)</span>
               </div>
             </div>
           )}
@@ -184,22 +316,19 @@ export default function TaskModal({ open, task, lookups, users, onClose, onSave,
           placeholder="Descreva a atividade..."
           rows={3}
           error={errors.atividade}
-          hint={`${form.atividade.length}/200 caracteres`}
+          hint={!isUserOnlyObservacoes ? `${form.atividade.length}/200 caracteres` : undefined}
+          disabled={isUserOnlyObservacoes}
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input
-            label="Prazo"
-            type="date"
-            value={form.prazo}
-            onChange={e => set("prazo", e.target.value)}
-          />
+          <Input label="Prazo" type="date" value={form.prazo} onChange={e => set("prazo", e.target.value)} disabled={isUserOnlyObservacoes} />
           <Input
             label="Data realizado"
             type="date"
             value={form.realizado}
             onChange={e => set("realizado", e.target.value)}
-            hint={form.realizado ? "Status será recalculado automaticamente" : undefined}
+            hint={form.realizado && !isUserOnlyObservacoes ? "Status será recalculado automaticamente" : undefined}
+            disabled={isUserOnlyObservacoes}
           />
         </div>
 
@@ -213,21 +342,121 @@ export default function TaskModal({ open, task, lookups, users, onClose, onSave,
           hint={form.observacoes ? `${form.observacoes.length}/1000 caracteres` : undefined}
         />
 
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <Paperclip size={16} />
+            Evidências
+          </div>
+
+          {!isEdit && (
+            <p className="text-xs text-slate-500">Salve a tarefa para habilitar anexos de evidências.</p>
+          )}
+
+          {isEdit && (
+            <>
+              {!isUserOnlyObservacoes && (
+                <>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      ref={evidenceInputRef}
+                      type="file"
+                      className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-brand-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-900 hover:file:bg-brand-200"
+                      onChange={e => setSelectedEvidence(e.target.files?.[0] || null)}
+                    />
+                    <Button
+                      type="button"
+                      onClick={handleUploadEvidence}
+                      loading={uploadingEvidence}
+                      icon={<Upload size={14} />}
+                      className="sm:w-auto w-full"
+                    >
+                      Anexar
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500">Formatos livres, tamanho máximo de 10MB por arquivo.</p>
+                </>
+              )}
+
+              <div className="space-y-2">
+                {evidences.length === 0 && <p className="text-xs text-slate-500">Nenhuma evidência anexada.</p>}
+                {evidences.map(evidence => (
+                  <div
+                    key={evidence.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm text-slate-800 truncate">{evidence.fileName}</p>
+                      <p className="text-xs text-slate-500">
+                        {formatBytes(evidence.fileSize)} · {new Date(evidence.uploadedAt).toLocaleString("pt-BR")}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <a href={evidence.downloadUrl} target="_blank" rel="noreferrer">
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm" 
+                          aria-label={`Baixar evidência: ${evidence.fileName}`}
+                          title="Baixar"
+                        >
+                          <ExternalLink size={14} />
+                        </Button>
+                      </a>
+                      {!isUserOnlyObservacoes && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Remover evidência: ${evidence.fileName}`}
+                          title="Remover"
+                          onClick={() => setDeleteEvidenceTarget(evidence)}
+                          className="hover:text-rose-600 hover:bg-rose-50"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
         {isEdit && task && (
-          <div className="pt-2 border-t border-slate-700/60">
-            <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-              <span>Criado por: <span className="text-slate-400">{task.createdBy}</span></span>
-              <span>Em: <span className="text-slate-400">{new Date(task.createdAt).toLocaleDateString("pt-BR")}</span></span>
+          <div className="pt-2 border-t border-slate-200">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-500">
+              <span>
+                Criado por: <span className="text-slate-700">{task.createdBy}</span>
+              </span>
+              <span>
+                Em: <span className="text-slate-700">{new Date(task.createdAt).toLocaleDateString("pt-BR")}</span>
+              </span>
               {task.updatedBy && (
                 <>
-                  <span>Editado por: <span className="text-slate-400">{task.updatedBy}</span></span>
-                  <span>Em: <span className="text-slate-400">{new Date(task.updatedAt).toLocaleDateString("pt-BR")}</span></span>
+                  <span>
+                    Editado por: <span className="text-slate-700">{task.updatedBy}</span>
+                  </span>
+                  <span>
+                    Em: <span className="text-slate-700">{new Date(task.updatedAt).toLocaleDateString("pt-BR")}</span>
+                  </span>
                 </>
               )}
             </div>
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!deleteEvidenceTarget}
+        title="Remover evidência"
+        message={`Deseja remover a evidência "${deleteEvidenceTarget?.fileName}"? Esta ação não pode ser desfeita.`}
+        confirmLabel="Remover"
+        variant="danger"
+        loading={deletingEvidence}
+        onConfirm={handleDeleteEvidence}
+        onCancel={() => setDeleteEvidenceTarget(null)}
+      />
     </Modal>
   );
 }

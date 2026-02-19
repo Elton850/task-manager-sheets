@@ -1,16 +1,18 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ToastProvider } from "@/contexts/ToastContext";
 import Layout from "@/components/layout/Layout";
 import LoginPage from "@/pages/LoginPage";
-import TasksPage from "@/pages/TasksPage";
-import CalendarPage from "@/pages/CalendarPage";
-import PerformancePage from "@/pages/PerformancePage";
-import UsersPage from "@/pages/UsersPage";
-import AdminPage from "@/pages/AdminPage";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { setTenantSlug, getTenantSlugFromUrl } from "@/services/api";
+
+// Lazy load pages for better performance
+const TasksPage = lazy(() => import("@/pages/TasksPage"));
+const CalendarPage = lazy(() => import("@/pages/CalendarPage"));
+const PerformancePage = lazy(() => import("@/pages/PerformancePage"));
+const UsersPage = lazy(() => import("@/pages/UsersPage"));
+const AdminPage = lazy(() => import("@/pages/AdminPage"));
 
 // Initialize tenant slug from URL
 setTenantSlug(getTenantSlugFromUrl());
@@ -26,7 +28,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingSpinner fullPage />;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "ADMIN") return <Navigate to="/tasks" replace />;
+  if (user.role !== "ADMIN") return <Navigate to="/calendar" replace />;
   return <>{children}</>;
 }
 
@@ -34,7 +36,7 @@ function AdminLeaderRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingSpinner fullPage />;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role === "USER") return <Navigate to="/tasks" replace />;
+  if (user.role === "USER") return <Navigate to="/calendar" replace />;
   return <>{children}</>;
 }
 
@@ -53,15 +55,38 @@ export default function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<Navigate to="/tasks" replace />} />
-              <Route path="/tasks" element={<TasksPage />} />
-              <Route path="/calendar" element={<CalendarPage />} />
-              <Route path="/performance" element={<PerformancePage />} />
+              <Route index element={<Navigate to="/calendar" replace />} />
+              <Route 
+                path="/tasks" 
+                element={
+                  <Suspense fallback={<LoadingSpinner fullPage />}>
+                    <TasksPage />
+                  </Suspense>
+                } 
+              />
+              <Route 
+                path="/calendar" 
+                element={
+                  <Suspense fallback={<LoadingSpinner fullPage />}>
+                    <CalendarPage />
+                  </Suspense>
+                } 
+              />
+              <Route 
+                path="/performance" 
+                element={
+                  <Suspense fallback={<LoadingSpinner fullPage />}>
+                    <PerformancePage />
+                  </Suspense>
+                } 
+              />
               <Route
                 path="/users"
                 element={
                   <AdminRoute>
-                    <UsersPage />
+                    <Suspense fallback={<LoadingSpinner fullPage />}>
+                      <UsersPage />
+                    </Suspense>
                   </AdminRoute>
                 }
               />
@@ -69,13 +94,15 @@ export default function App() {
                 path="/admin"
                 element={
                   <AdminLeaderRoute>
-                    <AdminPage />
+                    <Suspense fallback={<LoadingSpinner fullPage />}>
+                      <AdminPage />
+                    </Suspense>
                   </AdminLeaderRoute>
                 }
               />
             </Route>
 
-            <Route path="*" element={<Navigate to="/tasks" replace />} />
+            <Route path="*" element={<Navigate to="/calendar" replace />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>

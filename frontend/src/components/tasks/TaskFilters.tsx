@@ -71,10 +71,15 @@ export default function TaskFilters({ filters, lookups, users, onChange, onClear
           variant={expanded ? "secondary" : "outline"}
           onClick={() => setExpanded(e => !e)}
           icon={<SlidersHorizontal size={15} />}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Ocultar filtros avançados" : "Mostrar filtros avançados"}
         >
           Filtros
           {hasFilters && !expanded && (
-            <span className="ml-1 w-4 h-4 rounded-full bg-brand-500 text-white text-[10px] flex items-center justify-center">
+            <span 
+              className="ml-1 w-4 h-4 rounded-full bg-brand-500 text-white text-[10px] flex items-center justify-center"
+              aria-label={`${Object.values(filters).filter(Boolean).length} filtros ativos`}
+            >
               {Object.values(filters).filter(Boolean).length}
             </span>
           )}
@@ -89,7 +94,7 @@ export default function TaskFilters({ filters, lookups, users, onChange, onClear
 
       {/* Expanded filters */}
       {expanded && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-slate-900/60 rounded-lg border border-slate-700/60">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
           <Select
             value={filters.status}
             onChange={e => onChange({ status: e.target.value })}
@@ -118,7 +123,7 @@ export default function TaskFilters({ filters, lookups, users, onChange, onClear
 
       {/* Count */}
       {(hasFilters || totalCount > 0) && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-600 font-medium">
           {filteredCount === totalCount
             ? `${totalCount} tarefa${totalCount !== 1 ? "s" : ""}`
             : `${filteredCount} de ${totalCount} tarefa${totalCount !== 1 ? "s" : ""}`

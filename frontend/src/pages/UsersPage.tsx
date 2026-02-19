@@ -33,10 +33,7 @@ export default function UsersPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, lookupsRes] = await Promise.all([
-        usersApi.listAll(),
-        lookupsApi.list(),
-      ]);
+      const [usersRes, lookupsRes] = await Promise.all([usersApi.listAll(), lookupsApi.list()]);
       setUsers(usersRes.users);
       setLookups(lookupsRes.lookups);
     } catch (err) {
@@ -44,9 +41,11 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const filtered = users.filter(u => {
     if (!search) return true;
@@ -105,14 +104,9 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-4">
-      {/* Actions */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex-1 max-w-xs">
-          <Input
-            placeholder="Buscar usuários..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          <Input placeholder="Buscar usuários..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="flex gap-2">
           <Button variant="ghost" size="sm" onClick={load} icon={<RefreshCw size={14} />} />
@@ -122,7 +116,6 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* Table */}
       <Card padding={false}>
         {loading ? (
           <div className="flex items-center justify-center py-16">
@@ -130,57 +123,49 @@ export default function UsersPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-700/60">
-              <thead className="bg-slate-800/50">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-100">
                 <tr>
                   {["Usuário", "Email", "Função", "Área", "Status", "Ações"].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-700/40 bg-slate-900/40">
+              <tbody className="divide-y divide-slate-200 bg-white">
                 {filtered.map(u => (
-                  <tr key={u.id} className={`hover:bg-slate-800/30 transition-colors ${!u.active ? "opacity-50" : ""}`}>
+                  <tr key={u.id} className={`hover:bg-slate-50 transition-colors ${!u.active ? "opacity-60" : ""}`}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-brand-600/20 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
-                          <span className="text-xs font-bold text-brand-300">
-                            {u.nome.charAt(0).toUpperCase()}
-                          </span>
+                        <div className="w-8 h-8 rounded-full bg-brand-100 border border-brand-200 flex items-center justify-center flex-shrink-0">
+                          <span className="text-xs font-bold text-brand-800">{u.nome.charAt(0).toUpperCase()}</span>
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-slate-200">{u.nome}</p>
+                          <p className="text-sm font-medium text-slate-800">{u.nome}</p>
                           {u.canDelete && (
-                            <span className="text-xs text-slate-600">Pode excluir</span>
+                            <span className="inline-flex items-center gap-1 text-xs text-emerald-700 font-medium mt-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              Pode excluir
+                            </span>
                           )}
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-400">{u.email}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700">{u.email}</td>
                     <td className="px-4 py-3">
                       <Badge variant={getRoleVariant(u.role)}>
                         {u.role === "ADMIN" ? "Administrador" : u.role === "LEADER" ? "Líder" : "Usuário"}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-400">{u.area}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700">{u.area}</td>
                     <td className="px-4 py-3">
-                      <Badge variant={u.active ? "green" : "slate"}>
-                        {u.active ? "Ativo" : "Inativo"}
-                      </Badge>
-                      {u.mustChangePassword && (
-                        <div className="text-xs text-amber-500 mt-0.5">Aguardando senha</div>
-                      )}
+                      <Badge variant={u.active ? "green" : "slate"}>{u.active ? "Ativo" : "Inativo"}</Badge>
+                      {u.mustChangePassword && <div className="text-xs text-amber-700 mt-0.5">Aguardando senha</div>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => { setEditUser(u); setModalOpen(true); }}
-                          title="Editar"
-                        >
+                        <Button variant="ghost" size="sm" onClick={() => { setEditUser(u); setModalOpen(true); }} title="Editar">
                           <Edit2 size={13} />
                         </Button>
                         <Button
@@ -188,7 +173,7 @@ export default function UsersPage() {
                           size="sm"
                           onClick={() => { setResetUser(u); setResetCode(null); }}
                           title="Gerar código de acesso"
-                          className="hover:text-amber-400 hover:bg-amber-500/10"
+                          className="hover:text-amber-700 hover:bg-amber-50"
                         >
                           <Key size={13} />
                         </Button>
@@ -197,7 +182,7 @@ export default function UsersPage() {
                           size="sm"
                           onClick={() => setToggleTarget(u)}
                           title={u.active ? "Desativar" : "Ativar"}
-                          className={u.active ? "hover:text-rose-400 hover:bg-rose-500/10" : "hover:text-emerald-400 hover:bg-emerald-500/10"}
+                          className={u.active ? "hover:text-rose-700 hover:bg-rose-50" : "hover:text-emerald-700 hover:bg-emerald-50"}
                         >
                           {u.active ? <UserX size={13} /> : <UserCheck size={13} />}
                         </Button>
@@ -216,7 +201,6 @@ export default function UsersPage() {
         )}
       </Card>
 
-      {/* User Modal */}
       <UserModal
         open={modalOpen}
         user={editUser}
@@ -226,7 +210,6 @@ export default function UsersPage() {
         loading={saving}
       />
 
-      {/* Toggle Active Confirm */}
       <ConfirmDialog
         open={!!toggleTarget}
         title={toggleTarget?.active ? "Desativar usuário" : "Ativar usuário"}
@@ -238,7 +221,6 @@ export default function UsersPage() {
         onCancel={() => setToggleTarget(null)}
       />
 
-      {/* Reset Code Modal */}
       <Modal
         open={!!resetUser}
         onClose={() => { setResetUser(null); setResetCode(null); }}
@@ -258,19 +240,16 @@ export default function UsersPage() {
       >
         {resetCode ? (
           <div className="text-center">
-            <p className="text-sm text-slate-400 mb-3">Código gerado (válido por 30 minutos):</p>
-            <div className="inline-block px-6 py-3 rounded-xl bg-brand-600/15 border border-brand-500/30">
-              <span className="text-2xl font-mono font-bold tracking-[0.3em] text-brand-300">
-                {resetCode}
-              </span>
+            <p className="text-sm text-slate-600 mb-3">Código gerado (válido por 30 minutos):</p>
+            <div className="inline-block px-6 py-3 rounded-xl bg-brand-50 border border-brand-200">
+              <span className="text-2xl font-mono font-bold tracking-[0.3em] text-brand-800">{resetCode}</span>
             </div>
-            <p className="text-xs text-slate-500 mt-3">
-              Envie este código ao usuário para que ele possa definir sua senha.
-            </p>
+            <p className="text-xs text-slate-500 mt-3">Envie este código ao usuário para que ele possa definir sua senha.</p>
           </div>
         ) : (
-          <p className="text-sm text-slate-400">
-            Gerar um código temporário para "{resetUser?.nome}".<br />
+          <p className="text-sm text-slate-600">
+            Gerar um código temporário para "{resetUser?.nome}".
+            <br />
             O usuário precisará informar este código ao fazer login para definir uma nova senha.
           </p>
         )}

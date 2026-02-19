@@ -44,6 +44,19 @@ export interface TaskRow {
   updatedBy: string;
   deletedAt?: string;
   deletedBy?: string;
+  evidences?: TaskEvidenceRow[];
+}
+
+export interface TaskEvidenceRow {
+  id: string;
+  tenantId: string;
+  taskId: string;
+  fileName: string;
+  filePath: string;
+  mimeType: string;
+  fileSize: number;
+  uploadedAt: string;
+  uploadedBy: string;
 }
 
 export interface LookupRow {

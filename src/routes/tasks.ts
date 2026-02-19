@@ -1,5 +1,7 @@
 import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
+import fs from "fs";
+import path from "path";
 import db from "../db";
 import { requireAuth } from "../middleware/auth";
 import { mustString, optStr, nowIso, calcStatus } from "../utils";
@@ -29,7 +31,32 @@ interface TaskDbRow {
   deleted_by: string | null;
 }
 
-function rowToTask(row: TaskDbRow) {
+interface EvidenceDbRow {
+  id: string;
+  tenant_id: string;
+  task_id: string;
+  file_name: string;
+  file_path: string;
+  mime_type: string;
+  file_size: number;
+  uploaded_at: string;
+  uploaded_by: string;
+}
+
+function toEvidence(row: EvidenceDbRow, taskId: string) {
+  return {
+    id: row.id,
+    taskId,
+    fileName: row.file_name,
+    mimeType: row.mime_type,
+    fileSize: row.file_size,
+    uploadedAt: row.uploaded_at,
+    uploadedBy: row.uploaded_by,
+    downloadUrl: `/api/tasks/${taskId}/evidences/${row.id}/download`,
+  };
+}
+
+function rowToTask(row: TaskDbRow, evidences: EvidenceDbRow[] = []) {
   return {
     id: row.id,
     tenantId: row.tenant_id,
@@ -48,12 +75,24 @@ function rowToTask(row: TaskDbRow) {
     createdBy: row.created_by,
     updatedAt: row.updated_at,
     updatedBy: row.updated_by,
+    evidences: evidences.map(e => toEvidence(e, row.id)),
   };
 }
 
-function buildWhereClause(user: Request["user"]): { where: string; params: unknown[] } {
+function canReadTask(user: Request["user"], task: TaskDbRow): boolean {
+  if (!user) return false;
+  if (user.role === "ADMIN") return true;
+  if (user.role === "LEADER") return task.area === user.area;
+  return task.responsavel_email === user.email;
+}
+
+function canManageTask(user: Request["user"], task: TaskDbRow): boolean {
+  return canReadTask(user, task);
+}
+
+function buildWhereClause(user: Request["user"]): { where: string; params: Array<string | number | null> } {
   const baseWhere = "tenant_id = ? AND deleted_at IS NULL";
-  const params: unknown[] = [user!.tenantId];
+  const params: Array<string | number | null> = [user!.tenantId];
 
   if (user!.role === "ADMIN") {
     return { where: baseWhere, params };
@@ -100,8 +139,25 @@ router.get("/", (req: Request, res: Response): void => {
       SELECT * FROM tasks WHERE ${dynamicWhere}
       ORDER BY competencia_ym DESC, prazo ASC, created_at DESC
     `).all(...dynamicParams) as TaskDbRow[];
+    const taskIds = rows.map(r => r.id);
+    const evidencesByTask = new Map<string, EvidenceDbRow[]>();
 
-    res.json({ tasks: rows.map(rowToTask) });
+    if (taskIds.length > 0) {
+      const placeholders = taskIds.map(() => "?").join(",");
+      const evidenceRows = db.prepare(`
+        SELECT * FROM task_evidences
+        WHERE task_id IN (${placeholders})
+        ORDER BY uploaded_at DESC
+      `).all(...taskIds) as EvidenceDbRow[];
+
+      for (const evidence of evidenceRows) {
+        const list = evidencesByTask.get(evidence.task_id) || [];
+        list.push(evidence);
+        evidencesByTask.set(evidence.task_id, list);
+      }
+    }
+
+    res.json({ tasks: rows.map(row => rowToTask(row, evidencesByTask.get(row.id) || [])) });
   } catch {
     res.status(500).json({ error: "Erro ao buscar tarefas.", code: "INTERNAL" });
   }
@@ -201,7 +257,7 @@ router.post("/", (req: Request, res: Response): void => {
     );
 
     const created = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as TaskDbRow;
-    res.status(201).json({ task: rowToTask(created) });
+    res.status(201).json({ task: rowToTask(created, []) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erro ao criar tarefa.";
     res.status(400).json({ error: msg, code: "VALIDATION" });
@@ -234,10 +290,42 @@ router.put("/:id", (req: Request, res: Response): void => {
     }
 
     const body = req.body;
-    const prazo = optStr(body.prazo ?? task.prazo);
-    const realizado = optStr(body.realizado ?? task.realizado);
-    const atividade = optStr(body.atividade ?? task.atividade);
-    const observacoes = optStr(body.observacoes ?? task.observacoes);
+    let prazo: string | null;
+    let realizado: string | null;
+    let atividade: string;
+    let observacoes: string | null;
+    let competenciaYm: string;
+    let recorrencia: string;
+    let tipo: string;
+    let responsavelEmail: string;
+    let responsavelNome: string;
+    let area: string;
+
+    // USER can only update observacoes and realizado (mark as complete)
+    if (user.role === "USER") {
+      observacoes = optStr(body.observacoes ?? task.observacoes);
+      realizado = optStr(body.realizado ?? task.realizado) || null;
+      prazo = task.prazo || null;
+      atividade = task.atividade;
+      competenciaYm = task.competencia_ym;
+      recorrencia = task.recorrencia;
+      tipo = task.tipo;
+      responsavelEmail = task.responsavel_email;
+      responsavelNome = task.responsavel_nome;
+      area = task.area;
+    } else {
+      prazo = optStr(body.prazo ?? task.prazo) || null;
+      realizado = optStr(body.realizado ?? task.realizado) || null;
+      atividade = optStr(body.atividade ?? task.atividade);
+      observacoes = optStr(body.observacoes ?? task.observacoes) || null;
+      competenciaYm = optStr(body.competenciaYm ?? task.competencia_ym);
+      recorrencia = optStr(body.recorrencia ?? task.recorrencia);
+      tipo = optStr(body.tipo ?? task.tipo);
+      responsavelEmail = optStr(body.responsavelEmail ?? task.responsavel_email);
+      responsavelNome = optStr(body.responsavelNome ?? task.responsavel_nome);
+      area = optStr(body.area ?? task.area);
+    }
+
     const status = calcStatus(prazo, realizado);
     const now = nowIso();
 
@@ -249,21 +337,17 @@ router.put("/:id", (req: Request, res: Response): void => {
         updated_at = ?, updated_by = ?
       WHERE id = ? AND tenant_id = ?
     `).run(
-      optStr(body.competenciaYm ?? task.competencia_ym),
-      optStr(body.recorrencia ?? task.recorrencia),
-      optStr(body.tipo ?? task.tipo),
-      atividade,
-      optStr(body.responsavelEmail ?? task.responsavel_email),
-      optStr(body.responsavelNome ?? task.responsavel_nome),
-      optStr(body.area ?? task.area),
-      prazo || null, realizado || null,
-      status, observacoes || null,
+      competenciaYm, recorrencia, tipo, atividade,
+      responsavelEmail, responsavelNome, area,
+      prazo, realizado, status, observacoes,
       now, user.email,
       id, tenantId
     );
 
     const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as TaskDbRow;
-    res.json({ task: rowToTask(updated) });
+    const evidences = db.prepare("SELECT * FROM task_evidences WHERE task_id = ? ORDER BY uploaded_at DESC")
+      .all(id) as EvidenceDbRow[];
+    res.json({ task: rowToTask(updated, evidences) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erro ao atualizar tarefa.";
     res.status(400).json({ error: msg, code: "VALIDATION" });
@@ -341,9 +425,218 @@ router.post("/:id/duplicate", (req: Request, res: Response): void => {
     );
 
     const created = db.prepare("SELECT * FROM tasks WHERE id = ?").get(newId) as TaskDbRow;
-    res.status(201).json({ task: rowToTask(created) });
+    res.status(201).json({ task: rowToTask(created, []) });
   } catch {
     res.status(500).json({ error: "Erro ao duplicar tarefa.", code: "INTERNAL" });
+  }
+});
+
+const MAX_EVIDENCE_SIZE = 10 * 1024 * 1024;
+const uploadsBaseDir = path.resolve(process.cwd(), "data", "uploads");
+
+function sanitizeFileName(name: string): string {
+  return name.replace(/[^\w.\-]/g, "_").slice(0, 120) || "arquivo";
+}
+
+function parseBase64Payload(input: string): string {
+  const trimmed = input.trim();
+  const idx = trimmed.indexOf("base64,");
+  if (idx >= 0) return trimmed.slice(idx + 7);
+  return trimmed;
+}
+
+// GET /api/tasks/:id/evidences
+router.get("/:id/evidences", (req: Request, res: Response): void => {
+  try {
+    const user = req.user!;
+    const tenantId = req.tenantId!;
+    const { id } = req.params;
+
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL")
+      .get(id, tenantId) as TaskDbRow | undefined;
+
+    if (!task) {
+      res.status(404).json({ error: "Tarefa não encontrada.", code: "NOT_FOUND" });
+      return;
+    }
+    if (!canReadTask(user, task)) {
+      res.status(403).json({ error: "Sem permissão para visualizar evidências.", code: "FORBIDDEN" });
+      return;
+    }
+
+    const evidenceRows = db.prepare(`
+      SELECT * FROM task_evidences
+      WHERE task_id = ? AND tenant_id = ?
+      ORDER BY uploaded_at DESC
+    `).all(id, tenantId) as EvidenceDbRow[];
+
+    res.json({ evidences: evidenceRows.map(row => toEvidence(row, id)) });
+  } catch {
+    res.status(500).json({ error: "Erro ao buscar evidências.", code: "INTERNAL" });
+  }
+});
+
+// POST /api/tasks/:id/evidences
+router.post("/:id/evidences", (req: Request, res: Response): void => {
+  try {
+    const user = req.user!;
+    const tenantId = req.tenantId!;
+    const { id: taskId } = req.params;
+    const { fileName: fileNameRaw, mimeType: mimeTypeRaw, contentBase64 } = req.body || {};
+
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL")
+      .get(taskId, tenantId) as TaskDbRow | undefined;
+
+    if (!task) {
+      res.status(404).json({ error: "Tarefa não encontrada.", code: "NOT_FOUND" });
+      return;
+    }
+    if (!canManageTask(user, task)) {
+      res.status(403).json({ error: "Sem permissão para anexar evidências.", code: "FORBIDDEN" });
+      return;
+    }
+
+    const fileName = mustString(fileNameRaw, "Nome do arquivo");
+    const mimeType = optStr(mimeTypeRaw) || "application/octet-stream";
+    const base64Payload = parseBase64Payload(mustString(contentBase64, "Conteúdo do arquivo"));
+    const fileBuffer = Buffer.from(base64Payload, "base64");
+
+    if (!fileBuffer.length) {
+      res.status(400).json({ error: "Arquivo inválido.", code: "INVALID_FILE" });
+      return;
+    }
+    if (fileBuffer.length > MAX_EVIDENCE_SIZE) {
+      res.status(400).json({ error: "Arquivo excede 10MB.", code: "FILE_TOO_LARGE" });
+      return;
+    }
+
+    const evidenceId = uuidv4();
+    const safeName = sanitizeFileName(fileName);
+    const tenantDir = path.join(uploadsBaseDir, tenantId, taskId);
+    fs.mkdirSync(tenantDir, { recursive: true });
+    const diskName = `${evidenceId}_${safeName}`;
+    const absolutePath = path.join(tenantDir, diskName);
+    fs.writeFileSync(absolutePath, fileBuffer);
+
+    const relativePath = path.relative(process.cwd(), absolutePath).replaceAll("\\", "/");
+    const now = nowIso();
+
+    db.prepare(`
+      INSERT INTO task_evidences
+      (id, tenant_id, task_id, file_name, file_path, mime_type, file_size, uploaded_at, uploaded_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      evidenceId,
+      tenantId,
+      taskId,
+      fileName,
+      relativePath,
+      mimeType,
+      fileBuffer.length,
+      now,
+      user.email
+    );
+
+    const evidence = db.prepare("SELECT * FROM task_evidences WHERE id = ?").get(evidenceId) as EvidenceDbRow;
+    const evidences = db.prepare("SELECT * FROM task_evidences WHERE task_id = ? ORDER BY uploaded_at DESC")
+      .all(taskId) as EvidenceDbRow[];
+    const updatedTask = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as TaskDbRow;
+
+    res.status(201).json({
+      evidence: toEvidence(evidence, taskId),
+      task: rowToTask(updatedTask, evidences),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Erro ao anexar evidência.";
+    res.status(400).json({ error: msg, code: "VALIDATION" });
+  }
+});
+
+// GET /api/tasks/:id/evidences/:evidenceId/download
+router.get("/:id/evidences/:evidenceId/download", (req: Request, res: Response): void => {
+  try {
+    const user = req.user!;
+    const tenantId = req.tenantId!;
+    const { id: taskId, evidenceId } = req.params;
+
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL")
+      .get(taskId, tenantId) as TaskDbRow | undefined;
+
+    if (!task) {
+      res.status(404).json({ error: "Tarefa não encontrada.", code: "NOT_FOUND" });
+      return;
+    }
+    if (!canReadTask(user, task)) {
+      res.status(403).json({ error: "Sem permissão para baixar evidências.", code: "FORBIDDEN" });
+      return;
+    }
+
+    const evidence = db.prepare(`
+      SELECT * FROM task_evidences
+      WHERE id = ? AND task_id = ? AND tenant_id = ?
+    `).get(evidenceId, taskId, tenantId) as EvidenceDbRow | undefined;
+
+    if (!evidence) {
+      res.status(404).json({ error: "Evidência não encontrada.", code: "NOT_FOUND" });
+      return;
+    }
+
+    const absolutePath = path.resolve(process.cwd(), evidence.file_path);
+    if (!fs.existsSync(absolutePath)) {
+      res.status(404).json({ error: "Arquivo não encontrado no disco.", code: "FILE_NOT_FOUND" });
+      return;
+    }
+
+    res.setHeader("Content-Type", evidence.mime_type || "application/octet-stream");
+    res.download(absolutePath, evidence.file_name);
+  } catch {
+    res.status(500).json({ error: "Erro ao baixar evidência.", code: "INTERNAL" });
+  }
+});
+
+// DELETE /api/tasks/:id/evidences/:evidenceId
+router.delete("/:id/evidences/:evidenceId", (req: Request, res: Response): void => {
+  try {
+    const user = req.user!;
+    const tenantId = req.tenantId!;
+    const { id: taskId, evidenceId } = req.params;
+
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL")
+      .get(taskId, tenantId) as TaskDbRow | undefined;
+
+    if (!task) {
+      res.status(404).json({ error: "Tarefa não encontrada.", code: "NOT_FOUND" });
+      return;
+    }
+    if (!canManageTask(user, task)) {
+      res.status(403).json({ error: "Sem permissão para remover evidências.", code: "FORBIDDEN" });
+      return;
+    }
+
+    const evidence = db.prepare(`
+      SELECT * FROM task_evidences
+      WHERE id = ? AND task_id = ? AND tenant_id = ?
+    `).get(evidenceId, taskId, tenantId) as EvidenceDbRow | undefined;
+
+    if (!evidence) {
+      res.status(404).json({ error: "Evidência não encontrada.", code: "NOT_FOUND" });
+      return;
+    }
+
+    const absolutePath = path.resolve(process.cwd(), evidence.file_path);
+    if (fs.existsSync(absolutePath)) {
+      fs.unlinkSync(absolutePath);
+    }
+
+    db.prepare("DELETE FROM task_evidences WHERE id = ? AND tenant_id = ?").run(evidenceId, tenantId);
+
+    const evidences = db.prepare("SELECT * FROM task_evidences WHERE task_id = ? ORDER BY uploaded_at DESC")
+      .all(taskId) as EvidenceDbRow[];
+    const updatedTask = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as TaskDbRow;
+
+    res.json({ ok: true, task: rowToTask(updatedTask, evidences) });
+  } catch {
+    res.status(500).json({ error: "Erro ao remover evidência.", code: "INTERNAL" });
   }
 });
 

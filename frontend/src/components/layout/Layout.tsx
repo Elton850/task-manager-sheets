@@ -8,13 +8,12 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="flex h-screen bg-slate-950 overflow-hidden">
+    <div className="flex h-screen bg-slate-100 overflow-hidden">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(o => !o)} />
 
-      {/* Main content */}
       <div className="flex-1 flex flex-col lg:ml-64 min-w-0 transition-all duration-300">
         <Header onMenuToggle={() => setSidebarOpen(o => !o)} />
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6 bg-gradient-to-b from-slate-100 to-white">
           <Outlet />
         </main>
       </div>

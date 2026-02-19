@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Navigate } from "react-router-dom";
-import { CheckSquare, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/contexts/ToastContext";
 import { authApi } from "@/services/api";
-import type { AuthUser } from "@/types";
+import logo from "@/assets/logo.jpeg";
 
 type Mode = "login" | "reset";
 
@@ -20,7 +20,7 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [resetInfo, setResetInfo] = useState<{ firstAccess: boolean } | null>(null);
 
-  if (!loading && user) return <Navigate to="/tasks" replace />;
+  if (!loading && user) return <Navigate to="/calendar" replace />;
 
   const set = (field: string, value: string) => setForm(f => ({ ...f, [field]: value }));
 
@@ -30,6 +30,7 @@ export default function LoginPage() {
       toast("Preencha email e senha", "warning");
       return;
     }
+
     setSubmitting(true);
     try {
       await login(form.email, form.password);
@@ -57,6 +58,7 @@ export default function LoginPage() {
       toast("Senha deve ter pelo menos 6 caracteres", "warning");
       return;
     }
+
     setSubmitting(true);
     try {
       const { user: u } = await authApi.reset(form.email, form.code, form.newPassword);
@@ -70,25 +72,23 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-brand-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
-        {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-600 mb-4 shadow-lg shadow-brand-600/30">
-            <CheckSquare size={28} className="text-white" />
+          <div className="inline-flex items-center justify-center mb-4">
+            <div className="h-14 w-14 rounded-full bg-white border border-slate-200 shadow-sm overflow-hidden flex items-center justify-center">
+              <img src={logo} alt="Task Manager" className="h-10 w-10 object-cover" />
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-slate-100">Task Manager</h1>
-          {tenant && (
-            <p className="text-sm text-slate-500 mt-1">{tenant.name}</p>
-          )}
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Task Manager</h1>
+          {tenant && <p className="text-sm text-slate-500 mt-1 truncate max-w-[18rem] mx-auto">{tenant.name}</p>}
         </div>
 
-        {/* Card */}
-        <div className="bg-slate-900 border border-slate-700/60 rounded-2xl p-6 shadow-xl">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xl shadow-brand-100/60">
           {mode === "login" ? (
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="mb-2">
-                <h2 className="text-lg font-semibold text-slate-100">Entrar</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Entrar</h2>
                 <p className="text-sm text-slate-500">Faça login na sua conta</p>
               </div>
 
@@ -100,11 +100,12 @@ export default function LoginPage() {
                 onChange={e => set("email", e.target.value)}
                 placeholder="email@empresa.com"
                 autoComplete="email"
+                autoFocus
               />
 
               <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-slate-300">
-                  Senha <span className="text-rose-400">*</span>
+                <label className="text-sm font-medium text-slate-700">
+                  Senha <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -114,12 +115,13 @@ export default function LoginPage() {
                     onChange={e => set("password", e.target.value)}
                     placeholder="••••••••"
                     autoComplete="current-password"
-                    className="w-full rounded-lg bg-slate-800 border border-slate-700 text-slate-100 px-3 py-2 text-sm pr-10 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                    className="w-full rounded-lg bg-white border border-slate-300 text-slate-900 px-3 py-2 text-sm pr-10 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPass(s => !s)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-800"
+                    aria-label={showPass ? "Ocultar senha" : "Mostrar senha"}
                   >
                     {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
@@ -135,7 +137,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setMode("reset")}
-                  className="text-brand-400 hover:text-brand-300 transition-colors"
+                  className="text-brand-700 hover:text-brand-800 transition-colors"
                 >
                   Redefinir acesso
                 </button>
@@ -144,14 +146,13 @@ export default function LoginPage() {
           ) : (
             <form onSubmit={handleReset} className="space-y-4">
               <div className="mb-2">
-                <h2 className="text-lg font-semibold text-slate-100">
+                <h2 className="text-lg font-semibold text-slate-900">
                   {resetInfo?.firstAccess ? "Primeiro acesso" : "Redefinir senha"}
                 </h2>
                 <p className="text-sm text-slate-500">
                   {resetInfo?.firstAccess
                     ? "Insira o código fornecido pelo administrador"
-                    : "Insira o código de redefinição e sua nova senha"
-                  }
+                    : "Insira o código de redefinição e sua nova senha"}
                 </p>
               </div>
 
@@ -191,17 +192,15 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setMode("login")}
-                className="w-full text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                className="w-full text-xs text-slate-500 hover:text-slate-800 transition-colors"
               >
-                ← Voltar ao login
+                ? Voltar ao login
               </button>
             </form>
           )}
         </div>
 
-        <p className="text-center text-xs text-slate-600 mt-6">
-          Task Manager v2.0 · Multi-tenant
-        </p>
+        <p className="text-center text-xs text-slate-500 mt-6">Task Manager v2.0 · Multi-tenant</p>
       </div>
     </div>
   );

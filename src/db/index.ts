@@ -88,12 +88,26 @@ db.exec(`
     UNIQUE(tenant_id, area)
   );
 
+  CREATE TABLE IF NOT EXISTS task_evidences (
+    id           TEXT PRIMARY KEY,
+    tenant_id    TEXT NOT NULL REFERENCES tenants(id),
+    task_id      TEXT NOT NULL REFERENCES tasks(id),
+    file_name    TEXT NOT NULL,
+    file_path    TEXT NOT NULL,
+    mime_type    TEXT NOT NULL,
+    file_size    INTEGER NOT NULL DEFAULT 0,
+    uploaded_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    uploaded_by  TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_tasks_tenant    ON tasks(tenant_id);
   CREATE INDEX IF NOT EXISTS idx_tasks_area      ON tasks(tenant_id, area);
   CREATE INDEX IF NOT EXISTS idx_tasks_resp      ON tasks(tenant_id, responsavel_email);
   CREATE INDEX IF NOT EXISTS idx_tasks_ym        ON tasks(tenant_id, competencia_ym);
   CREATE INDEX IF NOT EXISTS idx_users_tenant    ON users(tenant_id);
   CREATE INDEX IF NOT EXISTS idx_lookups_tenant  ON lookups(tenant_id, category);
+  CREATE INDEX IF NOT EXISTS idx_evidence_task   ON task_evidences(task_id);
+  CREATE INDEX IF NOT EXISTS idx_evidence_tenant ON task_evidences(tenant_id);
 `);
 
 export default db;

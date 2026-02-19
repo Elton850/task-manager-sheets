@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw, Lock } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import TaskTable from "@/components/tasks/TaskTable";
@@ -8,11 +8,15 @@ import TaskModal from "@/components/tasks/TaskModal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/contexts/ToastContext";
-import { tasksApi, usersApi, lookupsApi } from "@/services/api";
+import { tasksApi, usersApi, lookupsApi, rulesApi } from "@/services/api";
 import type { Task, TaskFilters as Filters, Lookups, User } from "@/types";
 
 const DEFAULT_FILTERS: Filters = {
-  search: "", status: "", area: "", responsavel: "", competenciaYm: "",
+  search: "",
+  status: "",
+  area: "",
+  responsavel: "",
+  competenciaYm: "",
 };
 
 export default function TasksPage() {
@@ -32,27 +36,49 @@ export default function TasksPage() {
   const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  const [canCreateTask, setCanCreateTask] = useState(true);
+  const [createBlockedReason, setCreateBlockedReason] = useState("");
+  const [allowedRecorrencias, setAllowedRecorrencias] = useState<string[]>([]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [tasksRes, usersRes, lookupsRes] = await Promise.all([
-        tasksApi.list(),
-        usersApi.list(),
-        lookupsApi.list(),
-      ]);
-      setTasks(tasksRes.tasks);
-      setUsers(usersRes.users);
-      setLookups(lookupsRes.lookups);
+      const basePromises = [tasksApi.list(), usersApi.list(), lookupsApi.list()] as const;
+
+      if (user?.role === "USER") {
+        const [tasksRes, usersRes, lookupsRes, ruleRes] = await Promise.all([
+          ...basePromises,
+          rulesApi.byArea(user.area),
+        ]);
+        setTasks(tasksRes.tasks);
+        setUsers(usersRes.users);
+        setLookups(lookupsRes.lookups);
+
+        const allowed = ruleRes.rule?.allowedRecorrencias || [];
+        setAllowedRecorrencias(allowed);
+        const canCreate = allowed.length > 0;
+        setCanCreateTask(canCreate);
+        setCreateBlockedReason(canCreate ? "" : "Sua área não possui recorrências permitidas para criação de tarefas.");
+      } else {
+        const [tasksRes, usersRes, lookupsRes] = await Promise.all(basePromises);
+        setTasks(tasksRes.tasks);
+        setUsers(usersRes.users);
+        setLookups(lookupsRes.lookups);
+        setCanCreateTask(true);
+        setCreateBlockedReason("");
+        setAllowedRecorrencias([]);
+      }
     } catch (err) {
       toast(err instanceof Error ? err.message : "Erro ao carregar dados", "error");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast, user?.role, user?.area]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  // Client-side filtering
   const filteredTasks = useMemo(() => {
     return tasks.filter(t => {
       if (filters.search) {
@@ -72,17 +98,22 @@ export default function TasksPage() {
     try {
       if (editTask) {
         const { task } = await tasksApi.update(editTask.id, data);
-        setTasks(prev => prev.map(t => t.id === task.id ? task : t));
+        setTasks(prev => prev.map(t => (t.id === task.id ? task : t)));
         toast("Tarefa atualizada", "success");
-      } else {
-        const { task } = await tasksApi.create(data);
-        setTasks(prev => [task, ...prev]);
-        toast("Tarefa criada", "success");
+        setModalOpen(false);
+        setEditTask(null);
+        return task;
       }
+
+      const { task } = await tasksApi.create(data);
+      setTasks(prev => [task, ...prev]);
+      toast("Tarefa criada", "success");
       setModalOpen(false);
       setEditTask(null);
+      return task;
     } catch (err) {
       toast(err instanceof Error ? err.message : "Erro ao salvar tarefa", "error");
+      return undefined;
     } finally {
       setSaving(false);
     }
@@ -113,14 +144,43 @@ export default function TasksPage() {
     }
   };
 
+  const todayYmd = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+
+  const handleMarkComplete = async (task: Task) => {
+    try {
+      const { task: updated } = await tasksApi.update(task.id, { realizado: todayYmd() });
+      setTasks(prev => prev.map(t => (t.id === updated.id ? updated : t)));
+      toast("Tarefa marcada como concluída", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao marcar como concluída", "error");
+    }
+  };
+
+  const openCreateModal = () => {
+    if (!canCreateTask) {
+      toast(createBlockedReason || "Criação de tarefas indisponível para seu perfil.", "warning");
+      return;
+    }
+    setEditTask(null);
+    setModalOpen(true);
+  };
+
   return (
     <div className="space-y-4 max-w-full">
-      {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm text-slate-500">
             {new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
           </p>
+          {!canCreateTask && (
+            <p className="text-xs text-amber-700 mt-1 inline-flex items-center gap-1">
+              <Lock size={12} />
+              {createBlockedReason}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={load} icon={<RefreshCw size={14} />}>
@@ -129,14 +189,15 @@ export default function TasksPage() {
           <Button
             size="sm"
             icon={<Plus size={15} />}
-            onClick={() => { setEditTask(null); setModalOpen(true); }}
+            onClick={openCreateModal}
+            disabled={!canCreateTask}
+            title={!canCreateTask ? createBlockedReason : "Nova tarefa"}
           >
             Nova tarefa
           </Button>
         </div>
       </div>
 
-      {/* Filters */}
       <Card>
         <TaskFilters
           filters={filters}
@@ -149,29 +210,38 @@ export default function TasksPage() {
         />
       </Card>
 
-      {/* Table */}
       <Card padding={false}>
         <TaskTable
           tasks={filteredTasks}
           loading={loading}
-          onEdit={task => { setEditTask(task); setModalOpen(true); }}
+          onEdit={task => {
+            setEditTask(task);
+            setModalOpen(true);
+          }}
           onDelete={task => setDeleteTarget(task)}
           onDuplicate={handleDuplicate}
+          onMarkComplete={handleMarkComplete}
         />
       </Card>
 
-      {/* Task Modal */}
       <TaskModal
         open={modalOpen}
         task={editTask}
         lookups={lookups}
         users={users}
-        onClose={() => { setModalOpen(false); setEditTask(null); }}
+        allowedRecorrencias={user?.role === "USER" ? allowedRecorrencias : undefined}
+        onClose={() => {
+          setModalOpen(false);
+          setEditTask(null);
+        }}
         onSave={handleSave}
+        onTaskChange={updatedTask => {
+          setTasks(prev => prev.map(t => (t.id === updatedTask.id ? updatedTask : t)));
+          setEditTask(prev => (prev && prev.id === updatedTask.id ? updatedTask : prev));
+        }}
         loading={saving}
       />
 
-      {/* Delete Confirm */}
       <ConfirmDialog
         open={!!deleteTarget}
         title="Excluir tarefa"

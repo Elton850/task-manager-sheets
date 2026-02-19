@@ -125,25 +125,27 @@ export default function UserModal({ open, user, lookups, onClose, onSave, loadin
           />
         </div>
 
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/60 border border-slate-700/60">
-          <input
-            type="checkbox"
-            id="can-delete"
-            checked={form.canDelete}
-            onChange={e => set("canDelete", e.target.checked)}
-            className="w-4 h-4 rounded bg-slate-700 border-slate-600 text-brand-600 focus:ring-brand-500"
-          />
-          <div>
-            <label htmlFor="can-delete" className="text-sm font-medium text-slate-300 cursor-pointer">
+        <div className="flex items-start gap-3 p-4 rounded-lg bg-emerald-50 border border-emerald-200">
+          <div className="flex items-center h-5 mt-0.5">
+            <input
+              type="checkbox"
+              id="can-delete"
+              checked={form.canDelete}
+              onChange={e => set("canDelete", e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 focus:ring-2 cursor-pointer"
+            />
+          </div>
+          <div className="flex-1">
+            <label htmlFor="can-delete" className="text-sm font-medium text-slate-800 cursor-pointer block">
               Pode excluir tarefas
             </label>
-            <p className="text-xs text-slate-500 mt-0.5">Permite que este usuário exclua suas próprias tarefas</p>
+            <p className="text-xs text-slate-600 mt-0.5">Permite que este usuário exclua suas próprias tarefas</p>
           </div>
         </div>
 
         {!isEdit && (
-          <div className="p-3 rounded-lg bg-brand-500/10 border border-brand-500/20">
-            <p className="text-xs text-brand-300">
+          <div className="p-3 rounded-lg bg-brand-50 border border-brand-200">
+            <p className="text-xs text-brand-800">
               Após criar o usuário, use "Gerar código de acesso" para enviar a ele um código temporário para definir sua senha.
             </p>
           </div>

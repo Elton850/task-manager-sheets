@@ -1,4 +1,14 @@
-import type { AuthUser, Tenant, Task, User, Lookups, LookupItem, Rule, TaskFilters } from "@/types";
+import type {
+  AuthUser,
+  Tenant,
+  Task,
+  User,
+  Lookups,
+  LookupItem,
+  Rule,
+  TaskFilters,
+  TaskEvidence,
+} from "@/types";
 
 let csrfToken = "";
 let tenantSlug = "";
@@ -34,11 +44,7 @@ async function fetchCsrf(): Promise<void> {
   csrfToken = data.csrfToken;
 }
 
-async function request<T>(
-  method: string,
-  path: string,
-  body?: unknown
-): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   if (!csrfToken && method !== "GET") {
     await fetchCsrf();
   }
@@ -60,9 +66,12 @@ async function request<T>(
   });
 
   if (res.status === 401) {
-    // Token expired — redirect to login
-    window.location.href = "/login";
-    throw new Error("Sessão expirada");
+    if (window.location.pathname !== "/login") {
+      window.location.replace("/login");
+    }
+    const error = new Error("Sessão expirada");
+    (error as Error & { code?: string }).code = "UNAUTHORIZED";
+    throw error;
   }
 
   const data = await res.json();
@@ -82,12 +91,10 @@ const put = <T>(path: string, body?: unknown) => request<T>("PUT", path, body);
 const patch = <T>(path: string, body?: unknown) => request<T>("PATCH", path, body);
 const del = <T>(path: string) => request<T>("DELETE", path);
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
 export const authApi = {
   init: fetchCsrf,
 
-  login: (email: string, password: string) =>
-    post<{ user: AuthUser }>("/auth/login", { email, password }),
+  login: (email: string, password: string) => post<{ user: AuthUser }>("/auth/login", { email, password }),
 
   reset: (email: string, code: string, newPassword: string) =>
     post<{ user: AuthUser }>("/auth/reset", { email, code, newPassword }),
@@ -100,7 +107,6 @@ export const authApi = {
     post<{ email: string; code: string; expiresAt: string }>("/auth/generate-reset", { email }),
 };
 
-// ── Tasks ─────────────────────────────────────────────────────────────────────
 export const tasksApi = {
   list: (filters?: Partial<TaskFilters>) => {
     const params = new URLSearchParams();
@@ -120,9 +126,16 @@ export const tasksApi = {
   delete: (id: string) => del<{ ok: boolean }>(`/tasks/${id}`),
 
   duplicate: (id: string) => post<{ task: Task }>(`/tasks/${id}/duplicate`),
+
+  listEvidences: (id: string) => get<{ evidences: TaskEvidence[] }>(`/tasks/${id}/evidences`),
+
+  uploadEvidence: (id: string, file: { fileName: string; mimeType: string; contentBase64: string }) =>
+    post<{ evidence: TaskEvidence; task: Task }>(`/tasks/${id}/evidences`, file),
+
+  deleteEvidence: (id: string, evidenceId: string) =>
+    del<{ ok: boolean; task: Task }>(`/tasks/${id}/evidences/${evidenceId}`),
 };
 
-// ── Users ─────────────────────────────────────────────────────────────────────
 export const usersApi = {
   list: () => get<{ users: User[] }>("/users"),
 
@@ -135,7 +148,6 @@ export const usersApi = {
   toggleActive: (id: string) => patch<{ user: User }>(`/users/${id}/toggle-active`),
 };
 
-// ── Lookups ───────────────────────────────────────────────────────────────────
 export const lookupsApi = {
   list: () => get<{ lookups: Lookups }>("/lookups"),
 
@@ -144,13 +156,11 @@ export const lookupsApi = {
   add: (category: string, value: string) =>
     post<{ id: string; category: string; value: string }>("/lookups", { category, value }),
 
-  rename: (id: string, value: string) =>
-    put<{ ok: boolean }>(`/lookups/${id}`, { value }),
+  rename: (id: string, value: string) => put<{ ok: boolean }>(`/lookups/${id}`, { value }),
 
   remove: (id: string) => del<{ ok: boolean }>(`/lookups/${id}`),
 };
 
-// ── Rules ─────────────────────────────────────────────────────────────────────
 export const rulesApi = {
   list: () => get<{ rules: Rule[] }>("/rules"),
 
@@ -163,7 +173,6 @@ export const rulesApi = {
     put<{ rule: Rule }>("/rules", { area, allowedRecorrencias }),
 };
 
-// ── Tenant ────────────────────────────────────────────────────────────────────
 export const tenantApi = {
   current: () => get<{ tenant: Tenant }>("/tenants/current"),
 };

@@ -47,6 +47,18 @@ export interface Task {
   createdBy: string;
   updatedAt: string;
   updatedBy: string;
+  evidences?: TaskEvidence[];
+}
+
+export interface TaskEvidence {
+  id: string;
+  taskId: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  uploadedAt: string;
+  uploadedBy: string;
+  downloadUrl: string;
 }
 
 export interface LookupItem {

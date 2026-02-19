@@ -117,9 +117,7 @@ router.put("/:id", requireRole("ADMIN"), (req: Request, res: Response): void => 
     // Update lookup value
     db.prepare("UPDATE lookups SET value = ? WHERE id = ? AND tenant_id = ?").run(newValue, id, tenantId);
 
-    // Cascade rename in tasks
-    db.prepare("UPDATE tasks SET recorrencia = ? WHERE tenant_id = ? AND recorrencia = ? AND category_type = 'RECORRENCIA'");
-    // Update all tasks referencing old value in the same category
+    // Cascade rename: atualiza tasks e users que referenciam o valor antigo
     if (existing.category === "AREA") {
       db.prepare("UPDATE tasks SET area = ? WHERE tenant_id = ? AND area = ?").run(newValue, tenantId, existing.value);
       db.prepare("UPDATE users SET area = ? WHERE tenant_id = ? AND area = ?").run(newValue, tenantId, existing.value);

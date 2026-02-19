@@ -1,10 +1,40 @@
+# Dependencies
 node_modules/
+frontend/node_modules/
+
+# Build
 dist/
+frontend/dist/
+
+# Environment (nunca commitar segredos)
 .env
-.env.*
+.env.local
+.env.*.local
+!.env.example
+
+# Banco de dados e uploads (dados locais)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/uploads/
+
+# IDE / Editor
+.cursor/
+.vscode/
+*.swp
+*.swo
 .DS_Store
-code task-manager-sheets
-order table task-manager-sheets
+Thumbs.db
+
+# Logs e cache
+*.log
+npm-debug.log*
+.cache/
+
+# Arquivos legados / temporários
+*.tmp
+code task-manager-sheets*
+order table task-manager-sheets*
 performance.html
 performance-page.js
 performance.css

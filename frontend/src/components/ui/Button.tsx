@@ -12,10 +12,10 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variants: Record<Variant, string> = {
   primary: "bg-brand-600 hover:bg-brand-700 text-white border border-brand-600 hover:border-brand-700",
-  secondary: "bg-slate-700 hover:bg-slate-600 text-slate-100 border border-slate-600",
+  secondary: "bg-slate-200 hover:bg-slate-300 text-slate-800 border border-slate-300",
   danger: "bg-rose-600 hover:bg-rose-700 text-white border border-rose-600",
-  ghost: "bg-transparent hover:bg-slate-800 text-slate-300 hover:text-slate-100 border border-transparent",
-  outline: "bg-transparent hover:bg-slate-800 text-slate-300 hover:text-slate-100 border border-slate-600 hover:border-slate-500",
+  ghost: "bg-transparent hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-transparent",
+  outline: "bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-300 hover:border-slate-400",
 };
 
 const sizes: Record<Size, string> = {
@@ -38,10 +38,11 @@ export default function Button({
     <button
       {...props}
       disabled={disabled || loading}
+      aria-busy={loading}
       className={`
         inline-flex items-center justify-center rounded-lg
         transition-all duration-150 cursor-pointer
-        focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-slate-900
+        focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-white
         disabled:opacity-50 disabled:cursor-not-allowed
         ${variants[variant]} ${sizes[size]} ${className}
       `}

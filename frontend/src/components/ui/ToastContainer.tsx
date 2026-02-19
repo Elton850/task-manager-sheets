@@ -27,10 +27,10 @@ export default function ToastContainer() {
           className={`flex items-start gap-3 p-3.5 rounded-lg border backdrop-blur-sm shadow-lg animate-slide-in ${bg[t.type]}`}
         >
           {icons[t.type]}
-          <p className="text-sm text-slate-200 flex-1">{t.message}</p>
+          <p className="text-sm text-slate-900 flex-1 font-medium">{t.message}</p>
           <button
             onClick={() => dismiss(t.id)}
-            className="text-slate-400 hover:text-slate-200 transition-colors flex-shrink-0"
+            className="text-slate-600 hover:text-slate-900 transition-colors flex-shrink-0"
           >
             <X size={14} />
           </button>

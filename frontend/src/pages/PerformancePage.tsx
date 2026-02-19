@@ -166,7 +166,10 @@ export default function PerformancePage() {
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">Análise de desempenho das tarefas</p>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 mb-1">Performance</h2>
+          <p className="text-sm text-slate-600">Análise de desempenho das tarefas</p>
+        </div>
         <Button variant="ghost" size="sm" onClick={load} icon={<RefreshCw size={14} />}>
           Atualizar
         </Button>
@@ -216,7 +219,7 @@ export default function PerformancePage() {
         {Object.values(filters).some(Boolean) && (
           <button
             onClick={() => setFilters({ ...DEFAULT_FILTERS, from: getDefaultFrom(), to: getDefaultTo() })}
-            className="mt-3 text-xs text-brand-400 hover:text-brand-300"
+            className="mt-3 text-xs text-brand-600 hover:text-brand-700 font-medium"
           >
             Limpar filtros
           </button>
@@ -263,7 +266,7 @@ export default function PerformancePage() {
         <Card className="lg:col-span-3">
           <CardHeader title="Tarefas por Responsável" subtitle="Top 8 por volume" />
           {barData.length === 0 ? (
-            <div className="flex items-center justify-center h-48 text-slate-500 text-sm">Sem dados</div>
+            <div className="flex items-center justify-center h-48 text-slate-600 text-sm">Sem dados</div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={barData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>

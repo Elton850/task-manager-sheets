@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Settings, List, Shield } from "lucide-react";
+import { List, Shield } from "lucide-react";
 import Card, { CardHeader } from "@/components/ui/Card";
 import LookupManager from "@/components/admin/LookupManager";
 import RulesManager from "@/components/admin/RulesManager";
@@ -23,13 +23,6 @@ export default function AdminPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const promises: Promise<unknown>[] = [rulesApi.list()];
-      if (user?.role === "ADMIN") {
-        promises.unshift(lookupsApi.listAll(), lookupsApi.list());
-      } else {
-        promises.unshift(lookupsApi.list());
-      }
-
       if (user?.role === "ADMIN") {
         const [itemsRes, lookupsRes, rulesRes] = await Promise.all([
           lookupsApi.listAll(),
@@ -40,10 +33,7 @@ export default function AdminPage() {
         setLookups(lookupsRes.lookups);
         setRules(rulesRes.rules);
       } else {
-        const [lookupsRes, rulesRes] = await Promise.all([
-          lookupsApi.list(),
-          rulesApi.list(),
-        ]);
+        const [lookupsRes, rulesRes] = await Promise.all([lookupsApi.list(), rulesApi.list()]);
         setLookups(lookupsRes.lookups);
         setRules(rulesRes.rules);
       }
@@ -52,9 +42,33 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [user?.role]);
+  }, [user?.role, toast]);
 
-  useEffect(() => { load(); }, [load]);
+  /** Atualiza só a lista de lookups (sem loading da página) para refletir rename/add/delete na hora. */
+  const refreshLookups = useCallback(async () => {
+    if (user?.role !== "ADMIN") return;
+    try {
+      const [itemsRes, lookupsRes] = await Promise.all([lookupsApi.listAll(), lookupsApi.list()]);
+      setLookupItems(itemsRes.lookups);
+      setLookups(lookupsRes.lookups);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao atualizar listas", "error");
+    }
+  }, [user?.role, toast]);
+
+  /** Atualização otimista: reflete o rename na UI na hora, sem depender do refetch. */
+  const handleLookupRenamed = useCallback((id: string, newValue: string, category: string, oldValue: string) => {
+    setLookupItems(prev => prev.map(it => (it.id === id ? { ...it, value: newValue } : it)));
+    setLookups(prev => {
+      const next = { ...prev };
+      next[category] = (next[category] ?? []).map(v => (v === oldValue ? newValue : v));
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const tabs = [
     ...(user?.role === "ADMIN" ? [{ id: "lookups" as Tab, label: "Listas de Valores", icon: <List size={15} /> }] : []),
@@ -62,31 +76,33 @@ export default function AdminPage() {
   ];
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20"><LoadingSpinner text="Carregando configurações..." /></div>;
+    return (
+      <div className="flex items-center justify-center py-20">
+        <LoadingSpinner text="Carregando configurações..." />
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-4 max-w-3xl">
-      <p className="text-sm text-slate-500">
-        {user?.role === "ADMIN"
-          ? "Gerencie listas de valores e regras por área"
-          : "Gerencie as regras de recorrência da sua área"
-        }
-      </p>
+    <div className="space-y-5 max-w-4xl">
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900 mb-1">Configurações</h2>
+        <p className="text-sm text-slate-600">
+          {user?.role === "ADMIN"
+            ? "Gerencie listas de valores e regras por área"
+            : "Gerencie as regras de recorrência da sua área"}
+        </p>
+      </div>
 
-      {/* Tabs */}
       {tabs.length > 1 && (
-        <div className="flex gap-1 p-1 bg-slate-800/60 rounded-lg w-fit">
+        <div className="flex gap-1 p-1 bg-slate-100 border border-slate-200 rounded-lg w-fit">
           {tabs.map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`
-                flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all
-                ${tab === t.id
-                  ? "bg-slate-700 text-slate-100 shadow-sm"
-                  : "text-slate-500 hover:text-slate-300"
-                }
+                flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all
+                ${tab === t.id ? "bg-white text-brand-800 border border-brand-200 shadow-sm" : "text-slate-700 hover:text-slate-900"}
               `}
             >
               {t.icon}
@@ -96,14 +112,10 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Content */}
       {tab === "lookups" && user?.role === "ADMIN" && (
         <Card>
-          <CardHeader
-            title="Listas de Valores"
-            subtitle="Gerencie as opções disponíveis nos formulários de tarefas"
-          />
-          <LookupManager items={lookupItems} onRefresh={load} />
+          <CardHeader title="Listas de Valores" subtitle="Gerencie as opções disponíveis nos formulários de tarefas" />
+          <LookupManager items={lookupItems} onRefresh={refreshLookups} onLookupRenamed={handleLookupRenamed} />
         </Card>
       )}
 

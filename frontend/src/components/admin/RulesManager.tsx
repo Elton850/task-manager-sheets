@@ -18,10 +18,7 @@ export default function RulesManager({ rules, lookups, onRefresh }: RulesManager
   const [selected, setSelected] = useState<Record<string, Set<string>>>({});
   const [saving, setSaving] = useState<string | null>(null);
 
-  const areas = user?.role === "ADMIN"
-    ? (lookups.AREA || [])
-    : [user?.area || ""];
-
+  const areas = user?.role === "ADMIN" ? lookups.AREA || [] : [user?.area || ""];
   const recorrencias = lookups.RECORRENCIA || [];
 
   useEffect(() => {
@@ -59,19 +56,15 @@ export default function RulesManager({ rules, lookups, onRefresh }: RulesManager
   return (
     <div className="space-y-6">
       {areas.map(area => (
-        <div key={area} className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/60">
+        <div key={area} className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-slate-200">{area}</h3>
+            <h3 className="text-sm font-semibold text-slate-900">{area}</h3>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">
-                {(selected[area]?.size || 0)} recorrência{(selected[area]?.size || 0) !== 1 ? "s" : ""} permitida{(selected[area]?.size || 0) !== 1 ? "s" : ""}
+              <span className="text-xs text-slate-600 font-medium">
+                {(selected[area]?.size || 0)} recorrência{(selected[area]?.size || 0) !== 1 ? "s" : ""} permitida
+                {(selected[area]?.size || 0) !== 1 ? "s" : ""}
               </span>
-              <Button
-                size="sm"
-                onClick={() => handleSave(area)}
-                loading={saving === area}
-                icon={<Save size={13} />}
-              >
+              <Button size="sm" onClick={() => handleSave(area)} loading={saving === area} icon={<Save size={13} />}>
                 Salvar
               </Button>
             </div>
@@ -86,9 +79,10 @@ export default function RulesManager({ rules, lookups, onRefresh }: RulesManager
                   onClick={() => toggleRecorrencia(area, rec)}
                   className={`
                     flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all
-                    ${isSelected
-                      ? "bg-brand-600/20 text-brand-300 border border-brand-500/40"
-                      : "bg-slate-800 text-slate-500 border border-slate-600/40 hover:border-slate-500 hover:text-slate-400"
+                    ${
+                      isSelected
+                        ? "bg-brand-100 text-brand-900 border-2 border-brand-500 shadow-sm"
+                        : "bg-slate-50 text-slate-700 border border-slate-300 hover:border-slate-400 hover:text-slate-900 hover:bg-white"
                     }
                   `}
                 >
@@ -100,7 +94,7 @@ export default function RulesManager({ rules, lookups, onRefresh }: RulesManager
           </div>
 
           {(selected[area]?.size || 0) === 0 && (
-            <p className="text-xs text-amber-400 mt-2">
+            <p className="text-xs text-amber-700 mt-2">
               Nenhuma recorrência selecionada. Usuários desta área não poderão criar tarefas.
             </p>
           )}
