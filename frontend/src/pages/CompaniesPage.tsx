@@ -187,8 +187,8 @@ export default function CompaniesPage() {
                       <div className="flex items-center gap-2">
                         {t.hasLogo ? (
                           <img
-                            key={logoVersion[t.id]}
-                            src={`/api/tenants/logo/${t.slug}${logoVersion[t.id] ? `?v=${logoVersion[t.id]}` : ""}`}
+                            key={t.logoUpdatedAt ?? logoVersion[t.id] ?? t.id}
+                            src={`/api/tenants/logo/${t.slug}?tenant=system&v=${encodeURIComponent(t.logoUpdatedAt || logoVersion[t.id] || "")}`}
                             alt=""
                             className="h-10 w-10 rounded-lg border border-slate-200 object-cover bg-white"
                           />

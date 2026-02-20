@@ -37,7 +37,7 @@ export default function Header({ onMenuToggle }: HeaderProps) {
         </button>
         {!isMasterAdmin && (
           <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
-            <TenantLogo tenantSlug={tenant?.slug} alt="Task Manager" size="h-8 w-8" />
+            <TenantLogo tenantSlug={tenant?.slug} logoVersion={tenant?.logoUpdatedAt} alt="Task Manager" size="h-8 w-8" />
           </div>
         )}
         <h1 className="text-base font-semibold text-brand-900 truncate">{title}</h1>

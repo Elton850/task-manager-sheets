@@ -11,6 +11,7 @@ interface TenantDbRow {
   name: string;
   active: number;
   created_at: string;
+  logo_updated_at?: string | null;
 }
 
 /** Valida Host header para mitigar Host Header Attack. Em prod, se ALLOWED_HOST_PATTERN estiver definido, exige match. */
@@ -47,13 +48,11 @@ function resolveTenantSlug(req: Request): string | null {
     if (sub) return sub;
   }
 
-  // 3. Query param apenas em desenvolvimento (evita tenant switching / IDOR em produção)
-  if (!IS_PROD) {
-    const qParam = req.query["tenant"];
-    if (qParam && typeof qParam === "string") {
-      const slug = qParam.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
-      if (slug) return slug;
-    }
+  // 3. Query param (permite links "abrir em nova guia" / download enviarem o tenant; auth continua validando JWT)
+  const qParam = req.query["tenant"];
+  if (qParam && typeof qParam === "string") {
+    const slug = qParam.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+    if (slug) return slug;
   }
 
   return null;
@@ -80,6 +79,7 @@ export function tenantMiddleware(req: Request, res: Response, next: NextFunction
     name: row.name,
     active: row.active === 1,
     createdAt: row.created_at,
+    logoUpdatedAt: row.logo_updated_at ?? null,
   };
   req.tenantId = row.id;
 

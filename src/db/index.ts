@@ -140,5 +140,16 @@ try {
   // ignorar se já existir ou falha
 }
 
+// Migração: logo_updated_at para invalidar cache da logo quando alterada
+try {
+  const cols = db.prepare("PRAGMA table_info(tenants)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "logo_updated_at")) {
+    db.exec("ALTER TABLE tenants ADD COLUMN logo_updated_at TEXT");
+    db.exec("UPDATE tenants SET logo_updated_at = datetime('now') WHERE logo_path IS NOT NULL AND logo_path != ''");
+  }
+} catch {
+  // ignorar
+}
+
 export default db;
 export { SYSTEM_TENANT_ID };

@@ -604,9 +604,17 @@ router.get("/:id/evidences/:evidenceId/download", (req: Request, res: Response):
       return;
     }
 
-    res.setHeader("Content-Type", evidence.mime_type || "application/octet-stream");
+    const mime = evidence.mime_type || "application/octet-stream";
+    const inline = req.query.inline === "1" || String(req.query.inline).toLowerCase() === "true";
+    res.setHeader("Content-Type", mime);
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.download(absolutePath, evidence.file_name);
+    if (inline) {
+      res.setHeader("Content-Disposition", "inline");
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      res.sendFile(absolutePath);
+    } else {
+      res.download(absolutePath, evidence.file_name);
+    }
   } catch {
     res.status(500).json({ error: "Erro ao baixar evidência.", code: "INTERNAL" });
   }

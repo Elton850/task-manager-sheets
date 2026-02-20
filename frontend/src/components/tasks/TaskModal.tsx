@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Paperclip, Upload, Trash2, ExternalLink } from "lucide-react";
+import { Paperclip, Upload, Trash2, ExternalLink, Download, FileText } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -60,7 +60,7 @@ export default function TaskModal({
   onTaskChange,
   loading,
 }: TaskModalProps) {
-  const { user } = useAuth();
+  const { user, tenant } = useAuth();
   const { toast } = useToast();
   const isEdit = !!task;
   const isUserOnlyObservacoes = user?.role === "USER" && isEdit;
@@ -379,45 +379,69 @@ export default function TaskModal({
 
               <div className="space-y-2">
                 {evidences.length === 0 && <p className="text-xs text-slate-500">Nenhuma evidência anexada.</p>}
-                {evidences.map(evidence => (
-                  <div
-                    key={evidence.id}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm text-slate-800 truncate">{evidence.fileName}</p>
-                      <p className="text-xs text-slate-500">
-                        {formatBytes(evidence.fileSize)} · {new Date(evidence.uploadedAt).toLocaleString("pt-BR")}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <a href={evidence.downloadUrl} target="_blank" rel="noreferrer">
-                        <Button 
-                          type="button" 
-                          variant="ghost" 
-                          size="sm" 
-                          aria-label={`Baixar evidência: ${evidence.fileName}`}
-                          title="Baixar"
+                {evidences.map(evidence => {
+                  const isImage = /^image\/(jpeg|png|gif|webp)$/i.test(evidence.mimeType || "");
+                  const tenantParam = tenant?.slug ? `&tenant=${encodeURIComponent(tenant.slug)}` : "";
+                  const viewUrl = `${evidence.downloadUrl}?inline=1${tenantParam}`;
+                  const downloadUrl = `${evidence.downloadUrl}${tenant?.slug ? `?tenant=${encodeURIComponent(tenant.slug)}` : ""}`;
+                  return (
+                    <div
+                      key={evidence.id}
+                      className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                    >
+                      {isImage ? (
+                        <a
+                          href={viewUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex-shrink-0 rounded-lg border border-slate-200 overflow-hidden bg-slate-100 h-14 w-14 flex items-center justify-center"
+                          title="Abrir em nova guia"
                         >
-                          <ExternalLink size={14} />
-                        </Button>
-                      </a>
-                      {!isUserOnlyObservacoes && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`Remover evidência: ${evidence.fileName}`}
-                          title="Remover"
-                          onClick={() => setDeleteEvidenceTarget(evidence)}
-                          className="hover:text-rose-600 hover:bg-rose-50"
-                        >
-                          <Trash2 size={14} />
-                        </Button>
+                          <img
+                            src={viewUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        </a>
+                      ) : (
+                        <div className="h-14 w-14 flex-shrink-0 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center">
+                          <FileText size={24} className="text-slate-400" />
+                        </div>
                       )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-slate-800 truncate">{evidence.fileName}</p>
+                        <p className="text-xs text-slate-500">
+                          {formatBytes(evidence.fileSize)} · {new Date(evidence.uploadedAt).toLocaleString("pt-BR")}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <a href={viewUrl} target="_blank" rel="noreferrer" title="Abrir em nova guia">
+                          <Button type="button" variant="ghost" size="sm" aria-label={`Abrir: ${evidence.fileName}`}>
+                            <ExternalLink size={14} />
+                          </Button>
+                        </a>
+                        <a href={downloadUrl} download={evidence.fileName} title="Baixar">
+                          <Button type="button" variant="ghost" size="sm" aria-label={`Baixar: ${evidence.fileName}`}>
+                            <Download size={14} />
+                          </Button>
+                        </a>
+                        {!isUserOnlyObservacoes && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Remover evidência: ${evidence.fileName}`}
+                            title="Remover"
+                            onClick={() => setDeleteEvidenceTarget(evidence)}
+                            className="hover:text-rose-600 hover:bg-rose-50"
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}

@@ -15,11 +15,11 @@ export default function LoginPage() {
   const { user, loading, login, refreshSession, tenant } = useAuth();
   const { toast } = useToast();
   const basePath = useBasePath();
-  const [currentTenantName, setCurrentTenantName] = useState<string | null>(null);
+  const [currentTenant, setCurrentTenant] = useState<{ name: string; logoUpdatedAt?: string | null } | null>(null);
   const isSystemContext = basePath === "";
 
   useEffect(() => {
-    tenantApi.current().then((r) => setCurrentTenantName(r.tenant.name)).catch(() => setCurrentTenantName(null));
+    tenantApi.current().then((r) => setCurrentTenant({ name: r.tenant.name, logoUpdatedAt: r.tenant.logoUpdatedAt })).catch(() => setCurrentTenant(null));
   }, []);
 
   const [mode, setMode] = useState<Mode>("login");
@@ -102,6 +102,7 @@ export default function LoginPage() {
             <div className="inline-flex items-center justify-center mb-4">
               <TenantLogo
                 tenantSlug={basePath ? basePath.replace(/^\//, "") : null}
+                logoVersion={currentTenant?.logoUpdatedAt}
                 alt="Task Manager"
                 size="h-16 w-16"
                 className="rounded-xl shadow-sm"
@@ -109,7 +110,7 @@ export default function LoginPage() {
             </div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Task Manager</h1>
             <p className="text-sm text-slate-500 mt-1 truncate max-w-[18rem] mx-auto">
-              {currentTenantName ?? (tenant?.name || "Carregando…")}
+              {currentTenant?.name ?? (tenant?.name || "Carregando…")}
             </p>
           </div>
         )}

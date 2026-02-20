@@ -69,7 +69,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
         <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             {!isSystemAdmin && (
-              <TenantLogo tenantSlug={tenant?.slug} alt="Task Manager" size="h-9 w-9" />
+              <TenantLogo tenantSlug={tenant?.slug} logoVersion={tenant?.logoUpdatedAt} alt="Task Manager" size="h-9 w-9" />
             )}
             <div className="min-w-0">
               <div className="text-sm font-semibold text-brand-900 truncate">{tenant?.name || "Task Manager"}</div>

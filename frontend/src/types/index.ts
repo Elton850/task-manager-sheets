@@ -4,6 +4,8 @@ export interface Tenant {
   id: string;
   slug: string;
   name: string;
+  /** Atualizado quando a logo é alterada; usar em ?v= para forçar o navegador a carregar a logo nova */
+  logoUpdatedAt?: string | null;
 }
 
 export interface TenantListItem extends Tenant {
@@ -11,6 +13,8 @@ export interface TenantListItem extends Tenant {
   created_at: string;
   /** Indica se a empresa tem logo cadastrada (admin mestre). */
   hasLogo?: boolean;
+  /** Versão da logo para invalidar cache na listagem (admin mestre). */
+  logoUpdatedAt?: string | null;
 }
 
 export interface AuthUser {

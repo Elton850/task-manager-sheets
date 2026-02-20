@@ -6,6 +6,8 @@ export interface Tenant {
   name: string;
   active: boolean;
   createdAt: string;
+  /** ISO string; atualizado ao enviar/remover logo para invalidar cache no frontend */
+  logoUpdatedAt?: string | null;
 }
 
 export interface UserRow {

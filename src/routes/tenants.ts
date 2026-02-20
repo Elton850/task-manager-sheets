@@ -80,10 +80,18 @@ router.get("/logo/:slug", (req: Request, res: Response): void => {
       res.status(404).end();
       return;
     }
+    const stat = fs.statSync(absolutePath, { throwIfNoEntry: false });
+    const mtimeMs = stat?.mtimeMs ?? Date.now();
+    const etag = `"${mtimeMs.toString(36)}"`;
+    if (req.headers["if-none-match"] === etag) {
+      res.status(304).end();
+      return;
+    }
     const ext = path.extname(absolutePath).toLowerCase();
     const mime = ext === ".png" ? "image/png" : ext === ".gif" ? "image/gif" : ext === ".webp" ? "image/webp" : "image/jpeg";
     res.setHeader("Content-Type", mime);
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+    res.setHeader("ETag", etag);
     res.sendFile(absolutePath);
   } catch {
     res.status(500).end();
@@ -94,8 +102,17 @@ router.get("/logo/:slug", (req: Request, res: Response): void => {
 router.get("/", optionalAuth, (req: Request, res: Response): void => {
   if (!canListTenants(req, res)) return;
   try {
-    const tenants = db.prepare("SELECT id, slug, name, active, created_at, logo_path FROM tenants WHERE slug != ? ORDER BY name ASC").all(SYSTEM_TENANT_SLUG);
-    res.json({ tenants: tenants.map((t: { logo_path?: string | null }) => ({ ...t, hasLogo: !!t.logo_path })) });
+    const rows = db.prepare("SELECT id, slug, name, active, created_at, logo_path, logo_updated_at FROM tenants WHERE slug != ? ORDER BY name ASC").all(SYSTEM_TENANT_SLUG) as { id: string; slug: string; name: string; active: number; created_at: string; logo_path: string | null; logo_updated_at: string | null }[];
+    const tenants = rows.map((r) => ({
+      id: r.id,
+      slug: r.slug,
+      name: r.name,
+      active: r.active,
+      created_at: r.created_at,
+      hasLogo: Boolean(r.logo_path && r.logo_path.trim() !== ""),
+      logoUpdatedAt: r.logo_updated_at ?? undefined,
+    }));
+    res.json({ tenants });
   } catch {
     res.status(500).json({ error: "Erro ao buscar empresas.", code: "INTERNAL" });
   }
@@ -112,6 +129,7 @@ router.get("/current", (req: Request, res: Response): void => {
       id: req.tenant.id,
       slug: req.tenant.slug,
       name: req.tenant.name,
+      logoUpdatedAt: req.tenant.logoUpdatedAt ?? undefined,
     }
   });
 });
@@ -249,7 +267,7 @@ router.post("/:id/logo", optionalAuth, (req: Request, res: Response): void => {
     const absolutePath = path.join(logoDir, logoFileName);
     fs.writeFileSync(absolutePath, buffer);
     const relativePath = path.relative(process.cwd(), absolutePath).replaceAll("\\", "/");
-    db.prepare("UPDATE tenants SET logo_path = ? WHERE id = ?").run(relativePath, tenantId);
+    db.prepare("UPDATE tenants SET logo_path = ?, logo_updated_at = datetime('now') WHERE id = ?").run(relativePath, tenantId);
     res.json({ ok: true, logoPath: relativePath });
   } catch {
     res.status(500).json({ error: "Erro ao salvar logo.", code: "INTERNAL" });
@@ -272,7 +290,7 @@ router.delete("/:id/logo", optionalAuth, (req: Request, res: Response): void => 
       if (absolutePath.startsWith(allowedDir + path.sep) && fs.existsSync(absolutePath)) {
         fs.unlinkSync(absolutePath);
       }
-      db.prepare("UPDATE tenants SET logo_path = NULL WHERE id = ?").run(tenantId);
+      db.prepare("UPDATE tenants SET logo_path = NULL, logo_updated_at = datetime('now') WHERE id = ?").run(tenantId);
     }
     res.json({ ok: true });
   } catch {
