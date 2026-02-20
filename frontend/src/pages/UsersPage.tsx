@@ -12,7 +12,10 @@ import {
   Building2,
   UserCog,
   Filter,
+  Eye,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { setTenantSlug } from "@/services/api";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Badge, { getRoleVariant } from "@/components/ui/Badge";
@@ -75,7 +78,8 @@ function getYmOptions() {
 
 export default function UsersPage() {
   const { toast } = useToast();
-  const { user: authUser, tenant } = useAuth();
+  const navigate = useNavigate();
+  const { user: authUser, tenant, startImpersonation } = useAuth();
   const isAdmin = authUser?.role === "ADMIN";
   const isMasterAdmin = tenant?.slug === "system" && authUser?.role === "ADMIN";
 
@@ -101,6 +105,7 @@ export default function UsersPage() {
   const [bulkInactivateTarget, setBulkInactivateTarget] = useState<number | null>(null);
   const [bulkReactivateTarget, setBulkReactivateTarget] = useState<number | null>(null);
   const [bulking, setBulking] = useState(false);
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
 
   const set = (field: keyof UserFilters, value: string) =>
     setFilters((f) => ({ ...f, [field]: value }));
@@ -317,6 +322,20 @@ export default function UsersPage() {
       toast(err instanceof Error ? err.message : "Erro na reativação em massa", "error");
     } finally {
       setBulking(false);
+    }
+  };
+
+  const handleViewAs = async (u: User) => {
+    if (!isMasterAdmin) return;
+    setImpersonatingId(u.id);
+    try {
+      const { tenant: targetTenant } = await startImpersonation(u.id);
+      setTenantSlug(targetTenant.slug);
+      navigate(`/${targetTenant.slug}/calendar`);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao acessar como usuário", "error");
+    } finally {
+      setImpersonatingId(null);
     }
   };
 
@@ -664,6 +683,19 @@ export default function UsersPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
+                        {isMasterAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleViewAs(u)}
+                            disabled={!!impersonatingId}
+                            loading={impersonatingId === u.id}
+                            title="Ver como este usuário (somente leitura)"
+                            className="hover:text-brand-700 hover:bg-brand-50"
+                          >
+                            <Eye size={13} />
+                          </Button>
+                        )}
                         {isAdmin && (
                           <>
                             <Button

@@ -7,6 +7,7 @@ import path from "path";
 
 import { tenantMiddleware } from "./middleware/tenant";
 import { verifyCsrf, csrfToken } from "./middleware/csrf";
+import { apiAuthContext, blockWritesWhenImpersonating } from "./middleware/auth";
 
 import authRoutes from "./routes/auth";
 import taskRoutes from "./routes/tasks";
@@ -105,6 +106,10 @@ app.use("/api", (req, res, next) => {
   if (req.path === "/csrf" || req.path === "/health") return next();
   tenantMiddleware(req, res, next);
 });
+
+// ── Auth context (req.user, req.impersonating) e bloqueio de writes ao impersonar ─
+app.use("/api", apiAuthContext);
+app.use("/api", blockWritesWhenImpersonating);
 
 // ── CSRF verification for mutating requests ───────────────────────────────────
 app.use("/api", verifyCsrf);

@@ -130,7 +130,14 @@ export const authApi = {
 
   logout: () => post<{ ok: boolean }>("/auth/logout"),
 
-  me: () => get<{ user: AuthUser; tenant: Tenant }>("/auth/me"),
+  me: () => get<{ user: AuthUser; tenant: Tenant; isImpersonating?: boolean }>("/auth/me"),
+
+  /** Admin mestre: visualizar como outro usuário (somente leitura). Retorna user/tenant do usuário escolhido. */
+  impersonate: (userId: string) =>
+    post<{ user: AuthUser; tenant: Tenant }>("/auth/impersonate", { userId }),
+
+  /** Sair do modo "visualizar como" e voltar à conta do administrador mestre. */
+  impersonateStop: () => post<{ user: AuthUser; tenant: Tenant }>("/auth/impersonate/stop"),
 
   generateReset: (email: string, tenantSlug?: string) =>
     post<{ email: string; code: string; expiresAt: string }>("/auth/generate-reset", { email, tenantSlug }),

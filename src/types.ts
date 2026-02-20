@@ -96,6 +96,8 @@ declare global {
       user?: AuthUser;
       tenantId?: string;
       tenant?: Tenant;
+      /** Definido quando o admin mestre está visualizando como outro usuário (somente leitura). */
+      impersonating?: boolean;
     }
   }
 }

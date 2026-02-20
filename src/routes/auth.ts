@@ -189,7 +189,89 @@ router.post("/logout", (_req: Request, res: Response): void => {
 
 // GET /api/auth/me
 router.get("/me", requireAuth, (req: Request, res: Response): void => {
-  res.json({ user: req.user, tenant: req.tenant });
+  res.json({
+    user: req.user,
+    tenant: req.tenant,
+    isImpersonating: !!req.impersonating,
+  });
+});
+
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  maxAge: 12 * 60 * 60 * 1000,
+};
+
+// POST /api/auth/impersonate — Admin mestre: visualizar como outro usuário (somente leitura)
+router.post("/impersonate", requireAuth, (req: Request, res: Response): Promise<void> => {
+  return (async () => {
+    if (req.user!.role !== "ADMIN" || req.tenant?.slug !== "system") {
+      res.status(403).json({ error: "Apenas o administrador mestre pode usar esta função.", code: "FORBIDDEN" });
+      return;
+    }
+    const { userId } = req.body;
+    if (!userId || typeof userId !== "string") {
+      res.status(400).json({ error: "userId é obrigatório.", code: "MISSING_USER_ID" });
+      return;
+    }
+    const systemTenant = db.prepare("SELECT id FROM tenants WHERE slug = 'system'").get() as { id: string } | undefined;
+    if (!systemTenant) {
+      res.status(500).json({ error: "Configuração do sistema inválida.", code: "INTERNAL" });
+      return;
+    }
+    const targetRow = db.prepare(
+      "SELECT id, tenant_id, email, nome, role, area, can_delete FROM users WHERE id = ? AND active = 1"
+    ).get(userId) as (UserDbRow & { can_delete: number }) | undefined;
+    if (!targetRow) {
+      res.status(404).json({ error: "Usuário não encontrado ou inativo.", code: "NO_USER" });
+      return;
+    }
+    if (targetRow.tenant_id === systemTenant.id) {
+      res.status(400).json({ error: "Não é possível visualizar como outro administrador do sistema.", code: "INVALID_TARGET" });
+      return;
+    }
+    const tenantRow = db.prepare("SELECT id, slug, name, active, created_at FROM tenants WHERE id = ? AND active = 1")
+      .get(targetRow.tenant_id) as { id: string; slug: string; name: string; active: number; created_at: string } | undefined;
+    if (!tenantRow) {
+      res.status(404).json({ error: "Empresa do usuário não encontrada ou inativa.", code: "TENANT_NOT_FOUND" });
+      return;
+    }
+    const targetUser = rowToAuthUser(targetRow as UserDbRow);
+    const newToken = signToken(targetUser);
+    const currentToken = req.cookies?.["auth_token"];
+    if (currentToken) {
+      res.cookie("auth_real_token", currentToken, { ...COOKIE_OPTIONS, maxAge: 12 * 60 * 60 * 1000 });
+    }
+    res.cookie("auth_token", newToken, COOKIE_OPTIONS);
+    res.json({
+      user: targetUser,
+      tenant: { id: tenantRow.id, slug: tenantRow.slug, name: tenantRow.name },
+    });
+  })();
+});
+
+// POST /api/auth/impersonate/stop — Voltar à conta do administrador mestre
+router.post("/impersonate/stop", requireAuth, (req: Request, res: Response): void => {
+  const realToken = req.cookies?.["auth_real_token"];
+  if (!realToken) {
+    res.status(400).json({ error: "Não está visualizando como outro usuário.", code: "NOT_IMPERSONATING" });
+    return;
+  }
+  try {
+    const payload = require("../middleware/auth").verifyToken(realToken);
+    res.cookie("auth_token", realToken, COOKIE_OPTIONS);
+    res.clearCookie("auth_real_token", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production" });
+    const tenantRow = db.prepare("SELECT id, slug, name FROM tenants WHERE id = ?")
+      .get(payload.tenantId) as { id: string; slug: string; name: string } | undefined;
+    res.json({
+      user: payload,
+      tenant: tenantRow ? { id: tenantRow.id, slug: tenantRow.slug, name: tenantRow.name } : req.tenant,
+    });
+  } catch {
+    res.clearCookie("auth_real_token", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production" });
+    res.status(401).json({ error: "Sessão original expirada. Faça login novamente.", code: "TOKEN_EXPIRED" });
+  }
 });
 
 // POST /api/auth/generate-reset (ADMIN only)

@@ -68,9 +68,11 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
       >
         <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="h-9 w-9 flex-shrink-0 rounded-lg border border-slate-200 overflow-hidden bg-white flex items-center justify-center p-0.5">
-              <img src={logo} alt="Task Manager" className="w-full h-full object-contain" />
-            </div>
+            {!isSystemAdmin && (
+              <div className="h-9 w-9 flex-shrink-0 rounded-lg border border-slate-200 overflow-hidden bg-white flex items-center justify-center p-0.5">
+                <img src={logo} alt="Task Manager" className="w-full h-full object-contain" />
+              </div>
+            )}
             <div className="min-w-0">
               <div className="text-sm font-semibold text-brand-900 truncate">{tenant?.name || "Task Manager"}</div>
               <div className="text-xs text-slate-500 truncate">{tenant?.slug ? `@${tenant.slug}` : "v2.0"}</div>

@@ -23,6 +23,53 @@ export function verifyToken(token: string): AuthUser {
   return jwt.verify(token, JWT_SECRET) as AuthUser;
 }
 
+const SKIP_AUTH_PATHS = new Set(["/auth/login", "/auth/reset", "/csrf", "/health"]);
+
+/** Preenche req.user e req.impersonating para rotas /api (exceto login/reset/csrf/health). */
+export function apiAuthContext(req: Request, res: Response, next: NextFunction): void {
+  const path = (req.path || "").replace(/^\/api/, "") || "/";
+  if (SKIP_AUTH_PATHS.has(path)) {
+    next();
+    return;
+  }
+  const token = req.cookies?.["auth_token"];
+  if (!token) {
+    next();
+    return;
+  }
+  try {
+    const payload = verifyToken(token);
+    if (req.tenantId && payload.tenantId !== req.tenantId) {
+      next();
+      return;
+    }
+    req.user = payload;
+    req.impersonating = !!req.cookies?.["auth_real_token"];
+  } catch {
+    // token inválido: seguir sem user
+  }
+  next();
+}
+
+/** Bloqueia métodos que não sejam GET quando em modo "visualizar como", exceto sair da impersonação. */
+export function blockWritesWhenImpersonating(req: Request, res: Response, next: NextFunction): void {
+  const path = (req.path || "").replace(/^\/api/, "") || "/";
+  const allowStop = path === "/auth/impersonate/stop";
+  if (
+    req.impersonating &&
+    req.method !== "GET" &&
+    req.method !== "OPTIONS" &&
+    !allowStop
+  ) {
+    res.status(403).json({
+      error: "Modificações não permitidas ao visualizar como outro usuário.",
+      code: "IMPERSONATION_READ_ONLY",
+    });
+    return;
+  }
+  next();
+}
+
 /** Define req.user se houver token válido; não exige autenticação. */
 export function optionalAuth(req: Request, res: Response, next: NextFunction): void {
   const token = req.cookies?.["auth_token"];
@@ -37,6 +84,7 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction): v
       return;
     }
     req.user = payload;
+    req.impersonating = !!req.cookies?.["auth_real_token"];
   } catch {
     // token inválido: seguir sem user
   }
@@ -60,6 +108,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     }
 
     req.user = payload;
+    req.impersonating = !!req.cookies?.["auth_real_token"];
     next();
   } catch {
     res.clearCookie("auth_token");
