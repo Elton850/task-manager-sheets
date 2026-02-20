@@ -219,15 +219,38 @@ router.put("/:id", requireRole("ADMIN"), (req: Request, res: Response): void => 
   }
 });
 
-// GET /api/users/login-counts — logins per user in period (from/to as YYYY-MM)
+// GET /api/users/login-counts — logins per user in period (from/to as YYYY-MM). Admin mestre pode passar ?tenant=slug para escopar por empresa.
 router.get("/login-counts", requireRole("ADMIN", "LEADER"), (req: Request, res: Response): void => {
   try {
-    const tenantId = req.tenantId!;
+    let tenantId = req.tenantId!;
     const fromYm = (req.query.from as string) || "";
     const toYm = (req.query.to as string) || "";
+    const tenantSlug = (req.query.tenant as string) || "";
 
     if (!fromYm || !toYm) {
       res.json({ counts: {} });
+      return;
+    }
+
+    // Admin mestre: escopar por empresa (senão req.tenantId é "system" e login_events das empresas não entram)
+    if (isMasterAdmin(req) && tenantSlug && tenantSlug !== SYSTEM_TENANT_SLUG) {
+      const t = db.prepare("SELECT id FROM tenants WHERE slug = ?").get(tenantSlug) as { id: string } | undefined;
+      if (t) tenantId = t.id;
+    } else if (isMasterAdmin(req) && !tenantSlug) {
+      // Admin mestre sem filtro de empresa: contar logins de todos os tenants (não filtrar por tenant_id)
+      const fromDate = `${fromYm}-01T00:00:00.000Z`;
+      const [y, m] = toYm.split("-").map(Number);
+      const lastDay = new Date(Date.UTC(y, m, 0));
+      const toDate = `${toYm}-${String(lastDay.getUTCDate()).padStart(2, "0")}T23:59:59.999Z`;
+      const rows = db.prepare(`
+        SELECT user_id, COUNT(*) as cnt
+        FROM login_events
+        WHERE logged_at >= ? AND logged_at <= ?
+        GROUP BY user_id
+      `).all(fromDate, toDate) as { user_id: string; cnt: number }[];
+      const counts: Record<string, number> = {};
+      for (const r of rows) counts[r.user_id] = r.cnt;
+      res.json({ counts });
       return;
     }
 

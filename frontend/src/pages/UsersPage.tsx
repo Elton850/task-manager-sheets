@@ -138,12 +138,13 @@ export default function UsersPage() {
   const loadLoginCounts = useCallback(async () => {
     if (!filters.from || !filters.to) return;
     try {
-      const { counts } = await usersApi.getLoginCounts(filters.from, filters.to);
+      const tenantSlug = isMasterAdmin ? (filters.tenantSlug || undefined) : undefined;
+      const { counts } = await usersApi.getLoginCounts(filters.from, filters.to, tenantSlug);
       setLoginCounts(counts);
     } catch {
       setLoginCounts({});
     }
-  }, [filters.from, filters.to]);
+  }, [filters.from, filters.to, filters.tenantSlug, isMasterAdmin]);
 
   useEffect(() => {
     load();

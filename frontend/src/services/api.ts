@@ -202,8 +202,9 @@ export const usersApi = {
   create: (data: Partial<User> & { tenantSlug?: string }) =>
     post<{ user: User }>("/users", data),
 
-  getLoginCounts: (from: string, to: string) => {
+  getLoginCounts: (from: string, to: string, tenantSlug?: string) => {
     const params = new URLSearchParams({ from, to });
+    if (tenantSlug) params.set("tenant", tenantSlug);
     return get<{ counts: Record<string, number> }>(`/users/login-counts?${params}`);
   },
 
