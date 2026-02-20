@@ -8,6 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "seed": "ts-node src/db/seed.ts",
+    "seed:usability": "ts-node src/db/seedUsability.ts",
+    "seed:usability:clean": "ts-node src/db/seedUsability.ts --clean",
     "frontend:install": "cd frontend && npm install",
     "frontend:dev": "cd frontend && npm run dev",
     "frontend:build": "cd frontend && npm run build",

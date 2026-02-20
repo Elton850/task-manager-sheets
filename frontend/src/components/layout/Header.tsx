@@ -13,11 +13,14 @@ const PAGE_TITLES: Record<string, string> = {
   "/performance": "Performance",
   "/users": "Usuários",
   "/admin": "Configurações",
+  "/empresas": "Cadastro de empresas",
+  "/empresa": "Empresa",
 };
 
 export default function Header({ onMenuToggle }: HeaderProps) {
   const location = useLocation();
-  const title = PAGE_TITLES[location.pathname] || "Task Manager";
+  const lastSegment = location.pathname.split("/").filter(Boolean).pop() || "";
+  const title = PAGE_TITLES["/" + lastSegment] || "Task Manager";
 
   return (
     <header className="sticky top-0 z-10 flex items-center justify-between px-4 lg:px-6 py-3 bg-white/95 backdrop-blur border-b border-slate-200">
@@ -29,9 +32,9 @@ export default function Header({ onMenuToggle }: HeaderProps) {
         >
           <Menu size={20} />
         </button>
-        <div className="hidden sm:flex items-center gap-2">
-          <div className="h-7 w-7 rounded-full bg-white border border-slate-200 shadow-sm overflow-hidden flex items-center justify-center">
-            <img src={logo} alt="Task Manager" className="h-6 w-6 object-cover" />
+        <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+          <div className="h-8 w-8 rounded-lg bg-white border border-slate-200 shadow-sm overflow-hidden flex items-center justify-center p-0.5">
+            <img src={logo} alt="Task Manager" className="w-full h-full object-contain" />
           </div>
         </div>
         <h1 className="text-base font-semibold text-brand-900 truncate">{title}</h1>

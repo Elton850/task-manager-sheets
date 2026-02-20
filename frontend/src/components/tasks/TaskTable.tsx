@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Edit2, Trash2, Copy, ChevronUp, ChevronDown, Paperclip, CheckCircle } from "lucide-react";
 import Badge, { getStatusVariant } from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
@@ -17,7 +17,7 @@ interface TaskTableProps {
   onMarkComplete?: (task: Task) => void;
 }
 
-export default function TaskTable({ tasks, loading, onEdit, onDelete, onDuplicate, onMarkComplete }: TaskTableProps) {
+function TaskTableInner({ tasks, loading, onEdit, onDelete, onDuplicate, onMarkComplete }: TaskTableProps) {
   const { user } = useAuth();
   const [sortField, setSortField] = React.useState<SortField>("competenciaYm");
   const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
@@ -31,12 +31,14 @@ export default function TaskTable({ tasks, loading, onEdit, onDelete, onDuplicat
     }
   };
 
-  const sorted = [...tasks].sort((a, b) => {
-    const va = a[sortField] || "";
-    const vb = b[sortField] || "";
-    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
-    return sortDir === "asc" ? cmp : -cmp;
-  });
+  const sorted = useMemo(() => {
+    return [...tasks].sort((a, b) => {
+      const va = a[sortField] || "";
+      const vb = b[sortField] || "";
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [tasks, sortField, sortDir]);
 
   const SortIcon = ({ field }: { field: SortField }) => (
     <span className="inline-flex flex-col ml-1 opacity-50">
@@ -223,3 +225,5 @@ export default function TaskTable({ tasks, loading, onEdit, onDelete, onDuplicat
     </div>
   );
 }
+
+export default React.memo(TaskTableInner);

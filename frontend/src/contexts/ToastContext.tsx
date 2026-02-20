@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from "react";
 
 export type ToastType = "success" | "error" | "warning" | "info";
 
@@ -18,19 +18,38 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const dismiss = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    const t = timeoutsRef.current.get(id);
+    if (t) {
+      clearTimeout(t);
+      timeoutsRef.current.delete(id);
+    }
+    setToasts(prev => prev.filter(toast => toast.id !== id));
   }, []);
 
   const toast = useCallback((message: string, type: ToastType = "info") => {
     const id = Math.random().toString(36).slice(2);
     setToasts(prev => [...prev, { id, type, message }]);
-    setTimeout(() => dismiss(id), 4000);
+    const t = setTimeout(() => dismiss(id), 4000);
+    timeoutsRef.current.set(id, t);
   }, [dismiss]);
 
+  useEffect(() => {
+    return () => {
+      timeoutsRef.current.forEach(t => clearTimeout(t));
+      timeoutsRef.current.clear();
+    };
+  }, []);
+
+  const value = useMemo(
+    () => ({ toasts, toast, dismiss }),
+    [toasts, toast, dismiss]
+  );
+
   return (
-    <ToastContext.Provider value={{ toasts, toast, dismiss }}>
+    <ToastContext.Provider value={value}>
       {children}
     </ToastContext.Provider>
   );

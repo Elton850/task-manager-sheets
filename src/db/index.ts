@@ -101,13 +101,34 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_tasks_tenant    ON tasks(tenant_id);
+  CREATE INDEX IF NOT EXISTS idx_tasks_tenant_status ON tasks(tenant_id, status);
   CREATE INDEX IF NOT EXISTS idx_tasks_area      ON tasks(tenant_id, area);
   CREATE INDEX IF NOT EXISTS idx_tasks_resp      ON tasks(tenant_id, responsavel_email);
   CREATE INDEX IF NOT EXISTS idx_tasks_ym        ON tasks(tenant_id, competencia_ym);
   CREATE INDEX IF NOT EXISTS idx_users_tenant    ON users(tenant_id);
   CREATE INDEX IF NOT EXISTS idx_lookups_tenant  ON lookups(tenant_id, category);
+  CREATE TABLE IF NOT EXISTS login_events (
+    id         TEXT PRIMARY KEY,
+    tenant_id  TEXT NOT NULL REFERENCES tenants(id),
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    logged_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_evidence_task   ON task_evidences(task_id);
   CREATE INDEX IF NOT EXISTS idx_evidence_tenant ON task_evidences(tenant_id);
+  CREATE INDEX IF NOT EXISTS idx_login_events_tenant_user ON login_events(tenant_id, user_id);
+  CREATE INDEX IF NOT EXISTS idx_login_events_logged_at ON login_events(logged_at);
 `);
 
+// Tenant "system" para o administrador do sistema (único usuário que cadastra empresas)
+const SYSTEM_TENANT_ID = "00000000-0000-0000-0000-000000000001";
+try {
+  db.prepare(
+    "INSERT OR IGNORE INTO tenants (id, slug, name, active, created_at) VALUES (?, 'system', 'Sistema', 1, datetime('now'))"
+  ).run(SYSTEM_TENANT_ID);
+} catch {
+  // ignorar se já existir
+}
+
 export default db;
+export { SYSTEM_TENANT_ID };

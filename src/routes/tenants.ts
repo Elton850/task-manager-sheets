@@ -1,12 +1,18 @@
 import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
-import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import db from "../db";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireRole, optionalAuth } from "../middleware/auth";
 import { nowIso } from "../utils";
 
 const router = Router();
+
+const SYSTEM_TENANT_SLUG = "system";
+
+/** True se o usuário autenticado é o administrador do sistema (tenant "system", role ADMIN). */
+function isSystemAdmin(req: Request): boolean {
+  return !!(req.user && req.tenant?.slug === SYSTEM_TENANT_SLUG && req.user.role === "ADMIN");
+}
 
 /** Comparação segura contra timing attack para chave super-admin. */
 function secureCompare(a: string, b: string): boolean {
@@ -17,11 +23,10 @@ function secureCompare(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-// Super-admin key for tenant management (set in env)
-function checkSuperAdmin(req: Request, res: Response): boolean {
+/** Acesso por chave em header (scripts/API externa). */
+function checkSuperAdminKey(req: Request, res: Response): boolean {
   const key = (req.headers["x-super-admin-key"] as string) || "";
   const expected = process.env.SUPER_ADMIN_KEY || "";
-
   if (!expected || !secureCompare(key, expected)) {
     res.status(403).json({ error: "Acesso negado.", code: "FORBIDDEN" });
     return false;
@@ -29,18 +34,34 @@ function checkSuperAdmin(req: Request, res: Response): boolean {
   return true;
 }
 
-// GET /api/tenants — list all tenants (super admin)
-router.get("/", (req: Request, res: Response): void => {
-  if (!checkSuperAdmin(req, res)) return;
+/** Permite listar tenants: administrador do sistema (logado) ou chave super-admin. */
+function canListTenants(req: Request, res: Response): boolean {
+  if (req.user && isSystemAdmin(req)) return true;
+  if (checkSuperAdminKey(req, res)) return true;
+  if (!res.headersSent) res.status(403).json({ error: "Acesso negado.", code: "FORBIDDEN" });
+  return false;
+}
+
+/** Permite criar/alterar tenants: administrador do sistema (logado) ou chave super-admin. */
+function canManageTenants(req: Request, res: Response): boolean {
+  if (req.user && isSystemAdmin(req)) return true;
+  if (checkSuperAdminKey(req, res)) return true;
+  if (!res.headersSent) res.status(403).json({ error: "Acesso negado.", code: "FORBIDDEN" });
+  return false;
+}
+
+// GET /api/tenants — list all tenants (administrador do sistema logado ou chave)
+router.get("/", optionalAuth, (req: Request, res: Response): void => {
+  if (!canListTenants(req, res)) return;
   try {
-    const tenants = db.prepare("SELECT id, slug, name, active, created_at FROM tenants ORDER BY name ASC").all();
+    const tenants = db.prepare("SELECT id, slug, name, active, created_at FROM tenants WHERE slug != ? ORDER BY name ASC").all(SYSTEM_TENANT_SLUG);
     res.json({ tenants });
   } catch {
-    res.status(500).json({ error: "Erro ao buscar tenants.", code: "INTERNAL" });
+    res.status(500).json({ error: "Erro ao buscar empresas.", code: "INTERNAL" });
   }
 });
 
-// GET /api/tenants/current — public tenant info for current request
+// GET /api/tenants/current — tenant info for current request
 router.get("/current", (req: Request, res: Response): void => {
   if (!req.tenant) {
     res.status(404).json({ error: "Tenant não identificado.", code: "NO_TENANT" });
@@ -55,15 +76,41 @@ router.get("/current", (req: Request, res: Response): void => {
   });
 });
 
-// POST /api/tenants — create tenant + initial admin user (super admin)
-router.post("/", async (req: Request, res: Response): Promise<void> => {
-  if (!checkSuperAdmin(req, res)) return;
+// PATCH /api/tenants/current — update current tenant (ADMIN only)
+router.patch("/current", requireAuth, requireRole("ADMIN"), (req: Request, res: Response): void => {
+  try {
+    const tenant = req.tenant;
+    if (!tenant) {
+      res.status(404).json({ error: "Tenant não identificado.", code: "NO_TENANT" });
+      return;
+    }
+    const { name } = req.body;
+    if (typeof name !== "string" || !name.trim()) {
+      res.status(400).json({ error: "Nome da empresa é obrigatório.", code: "MISSING_NAME" });
+      return;
+    }
+    db.prepare("UPDATE tenants SET name = ? WHERE id = ?").run(name.trim(), tenant.id);
+    res.json({
+      tenant: {
+        id: tenant.id,
+        slug: tenant.slug,
+        name: name.trim(),
+      },
+    });
+  } catch {
+    res.status(500).json({ error: "Erro ao atualizar empresa.", code: "INTERNAL" });
+  }
+});
+
+// POST /api/tenants — cria apenas a empresa (sem admin). Admin Mestre cadastra usuários depois.
+router.post("/", optionalAuth, async (req: Request, res: Response): Promise<void> => {
+  if (!canManageTenants(req, res)) return;
 
   try {
-    const { slug, name, adminEmail, adminPassword, adminNome } = req.body;
+    const { slug, name } = req.body;
 
-    if (!slug || !name || !adminEmail || !adminPassword) {
-      res.status(400).json({ error: "slug, name, adminEmail e adminPassword são obrigatórios.", code: "MISSING_FIELDS" });
+    if (!slug || !name) {
+      res.status(400).json({ error: "slug e name são obrigatórios.", code: "MISSING_FIELDS" });
       return;
     }
 
@@ -76,8 +123,6 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
     }
 
     const tenantId = uuidv4();
-    const adminId = uuidv4();
-    const passwordHash = await bcrypt.hash(adminPassword, 12);
     const now = nowIso();
 
     const DEFAULT_LOOKUPS: Record<string, string[]> = {
@@ -86,14 +131,10 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       TIPO: ["Rotina", "Projeto", "Reunião", "Auditoria", "Treinamento"],
     };
 
-    const insertAll = db.transaction(() => {
+    db.exec("BEGIN");
+    try {
       db.prepare("INSERT INTO tenants (id, slug, name, active, created_at) VALUES (?, ?, ?, 1, ?)")
         .run(tenantId, slugNorm, String(name).trim(), now);
-
-      db.prepare(`
-        INSERT INTO users (id, tenant_id, email, nome, role, area, active, can_delete, password_hash, must_change_password, created_at)
-        VALUES (?, ?, ?, ?, 'ADMIN', 'TI', 1, 1, ?, 0, ?)
-      `).run(adminId, tenantId, String(adminEmail).trim().toLowerCase(), adminNome || "Administrador", passwordHash, now);
 
       let order = 0;
       for (const [category, values] of Object.entries(DEFAULT_LOOKUPS)) {
@@ -102,23 +143,24 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
             .run(uuidv4(), tenantId, category, value, order++, now);
         }
       }
-    });
-
-    insertAll();
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
 
     res.status(201).json({
-      tenant: { id: tenantId, slug: slugNorm, name },
-      admin: { email: adminEmail },
-      accessUrl: `https://${slugNorm}.taskmanager.com`,
+      tenant: { id: tenantId, slug: slugNorm, name: String(name).trim() },
+      accessUrl: `/${slugNorm}`,
     });
   } catch {
-    res.status(500).json({ error: "Erro ao criar tenant.", code: "INTERNAL" });
+    res.status(500).json({ error: "Erro ao criar empresa.", code: "INTERNAL" });
   }
 });
 
-// PATCH /api/tenants/:id/toggle-active (super admin)
-router.patch("/:id/toggle-active", (req: Request, res: Response): void => {
-  if (!checkSuperAdmin(req, res)) return;
+// PATCH /api/tenants/:id/toggle-active (administrador do sistema ou chave)
+router.patch("/:id/toggle-active", optionalAuth, (req: Request, res: Response): void => {
+  if (!canManageTenants(req, res)) return;
   try {
     const { id } = req.params;
     const tenant = db.prepare("SELECT * FROM tenants WHERE id = ?").get(id) as { active: number } | undefined;

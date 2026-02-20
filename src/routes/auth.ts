@@ -76,6 +76,16 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
     const user = rowToAuthUser(row);
     const token = signToken(user);
 
+    // Registrar evento de login para métricas
+    try {
+      const eventId = uuidv4();
+      db.prepare(
+        "INSERT INTO login_events (id, tenant_id, user_id, logged_at) VALUES (?, ?, ?, ?)"
+      ).run(eventId, tenantId, row.id, new Date().toISOString());
+    } catch {
+      // Não falhar o login se o registro falhar
+    }
+
     res.cookie("auth_token", token, {
       httpOnly: true,
       sameSite: "lax",
@@ -143,6 +153,16 @@ router.post("/reset", async (req: Request, res: Response): Promise<void> => {
     const user = rowToAuthUser(updatedRow);
     const token = signToken(user);
 
+    // Registrar evento de login (reset de senha concluído = novo acesso)
+    try {
+      const eventId = uuidv4();
+      db.prepare(
+        "INSERT INTO login_events (id, tenant_id, user_id, logged_at) VALUES (?, ?, ?, ?)"
+      ).run(eventId, tenantId, updatedRow.id, new Date().toISOString());
+    } catch {
+      // Não falhar se o registro falhar
+    }
+
     res.cookie("auth_token", token, {
       httpOnly: true,
       sameSite: "lax",
@@ -180,14 +200,18 @@ router.post("/generate-reset", requireAuth, async (req: Request, res: Response):
       return;
     }
 
-    const { email: emailRaw } = req.body;
+    const { email: emailRaw, tenantSlug: bodyTenantSlug } = req.body;
     if (!emailRaw) {
       res.status(400).json({ error: "Email é obrigatório.", code: "MISSING_EMAIL" });
       return;
     }
 
     const email = safeLowerEmail(emailRaw);
-    const tenantId = req.tenantId!;
+    let tenantId = req.tenantId!;
+    if (req.tenant?.slug === "system" && bodyTenantSlug) {
+      const t = db.prepare("SELECT id FROM tenants WHERE slug = ?").get(bodyTenantSlug) as { id: string } | undefined;
+      if (t) tenantId = t.id;
+    }
 
     const row = db.prepare("SELECT * FROM users WHERE tenant_id = ? AND email = ?")
       .get(tenantId, email) as UserDbRow | undefined;

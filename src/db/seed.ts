@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 const DEMO_TENANT_SLUG = "demo";
 const DEMO_TENANT_NAME = "Empresa Demo";
 const ADMIN_EMAIL = "admin@demo.com";
-const ADMIN_PASSWORD = "Admin@123";
+const ADMIN_PASSWORD = "123456";
 
 const DEFAULT_LOOKUPS: Record<string, string[]> = {
   AREA: ["TI", "Financeiro", "RH", "Operações", "Comercial"],

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import Button from "@/components/ui/Button";
 import type { Task } from "@/types";
@@ -50,26 +50,35 @@ export default function CalendarGrid({
   const firstDayOfMonth = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  const tasksByDay = new Map<number, Task[]>();
-  const ymStr = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const { tasksByDay, statusByDay } = useMemo(() => {
+    const tasksByDay = new Map<number, Task[]>();
+    const statusByDay = new Map<number, { andamento: number; atraso: number; concluido: number }>();
+    const ymStr = `${year}-${String(month + 1).padStart(2, "0")}`;
 
-  for (const task of tasks) {
-    if (task.competenciaYm === ymStr && task.prazo) {
-      const prazoDate = new Date(task.prazo + "T00:00:00");
-      if (prazoDate.getFullYear() === year && prazoDate.getMonth() === month) {
-        const d = prazoDate.getDate();
-        if (!tasksByDay.has(d)) tasksByDay.set(d, []);
-        tasksByDay.get(d)!.push(task);
+    for (const task of tasks) {
+      if (task.competenciaYm === ymStr && task.prazo) {
+        const prazoDate = new Date(task.prazo + "T00:00:00");
+        if (prazoDate.getFullYear() === year && prazoDate.getMonth() === month) {
+          const d = prazoDate.getDate();
+          if (!tasksByDay.has(d)) tasksByDay.set(d, []);
+          tasksByDay.get(d)!.push(task);
+        }
       }
     }
-  }
+    tasksByDay.forEach((dayTasks, day) => {
+      statusByDay.set(day, getStatusCount(dayTasks));
+    });
+    return { tasksByDay, statusByDay };
+  }, [tasks, year, month]);
 
-  const cells: Array<number | null> = [
-    ...Array(firstDayOfMonth).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ];
-
-  while (cells.length % 7 !== 0) cells.push(null);
+  const cells: Array<number | null> = useMemo(() => {
+    const c: Array<number | null> = [
+      ...Array(firstDayOfMonth).fill(null),
+      ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+    ];
+    while (c.length % 7 !== 0) c.push(null);
+    return c;
+  }, [firstDayOfMonth, daysInMonth]);
 
   return (
     <div className="bg-gradient-to-b from-slate-50 to-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
@@ -117,7 +126,7 @@ export default function CalendarGrid({
           const isSelected = selectedDay === day;
           const hasOverdue = dayTasks.some(t => t.status === "Em Atraso");
           const count = dayTasks.length;
-          const stats = getStatusCount(dayTasks);
+          const stats = statusByDay.get(day) ?? { andamento: 0, atraso: 0, concluido: 0 };
 
           return (
             <div

@@ -1,6 +1,7 @@
 import type {
   AuthUser,
   Tenant,
+  TenantListItem,
   Task,
   User,
   Lookups,
@@ -17,16 +18,34 @@ export function setTenantSlug(slug: string) {
   tenantSlug = slug;
 }
 
-export function getTenantSlugFromUrl(): string {
-  const hostname = window.location.hostname;
+/** Limpa o token CSRF em memória (ex.: após logout). O próximo POST/PUT vai obter um novo via GET /api/csrf. */
+export function clearCsrfToken(): void {
+  csrfToken = "";
+}
 
-  // Production: empresaX.taskmanager.com
-  const parts = hostname.split(".");
-  if (parts.length >= 3 && !hostname.includes("localhost")) {
-    return parts[0].toLowerCase();
+const RESERVED_SEGMENTS = new Set(["login", "calendar", "tasks", "performance", "users", "admin", "empresa", "empresas"]);
+
+/**
+ * Tenant no path tem prioridade: /empresax/login -> empresax.
+ * Path de sistema (/, /login, /empresas, etc.) -> sempre "system"; não usa localStorage.
+ * Senão: subdomínio, query ?tenant=, ou localStorage (para dev).
+ */
+export function getTenantSlugFromUrl(): string {
+  if (typeof window !== "undefined" && window.location.pathname) {
+    const parts = window.location.pathname.split("/").filter(Boolean);
+    const seg = (parts[0] || "").toLowerCase();
+    // Path com tenant: /acme ou /acme/login -> primeiro segmento é o slug da empresa
+    if (seg && !RESERVED_SEGMENTS.has(seg)) return seg;
+    // Path de sistema: /, /login, /calendar, /empresas, etc. -> sempre "system"
+    return "system";
   }
 
-  // Development: query param
+  const hostname = window.location.hostname;
+  if (hostname && hostname !== "localhost" && hostname !== "127.0.0.1") {
+    const parts = hostname.split(".");
+    if (parts.length >= 3) return parts[0].toLowerCase();
+  }
+
   const params = new URLSearchParams(window.location.search);
   const tenantParam = params.get("tenant");
   if (tenantParam) {
@@ -34,8 +53,7 @@ export function getTenantSlugFromUrl(): string {
     return tenantParam.toLowerCase();
   }
 
-  // Fallback to localStorage
-  return localStorage.getItem("tenantSlug") || "demo";
+  return localStorage.getItem("tenantSlug") || "system";
 }
 
 async function fetchCsrf(): Promise<void> {
@@ -65,20 +83,31 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  if (res.status === 401) {
-    if (window.location.pathname !== "/login") {
-      window.location.replace("/login");
-    }
-    const error = new Error("Sessão expirada");
-    (error as Error & { code?: string }).code = "UNAUTHORIZED";
-    throw error;
-  }
-
-  const data = await res.json();
+  const data = await res.json().catch(() => ({} as Record<string, unknown>));
 
   if (!res.ok) {
-    const error = new Error(data.error || "Erro desconhecido");
-    (error as Error & { code?: string }).code = data.code;
+    const payload = data as { error?: string; code?: string; meta?: unknown };
+    if (res.status === 401) {
+      const isLoginEndpoint = path === "/auth/login";
+      if (isLoginEndpoint) {
+        // Objeto com code garantido para a tela de login exibir a mensagem correta
+        const loginError = new Error(payload.error || "Não autorizado") as Error & { code?: string; meta?: unknown };
+        loginError.code = payload.code ?? "UNAUTHORIZED";
+        loginError.meta = payload.meta;
+        throw loginError;
+      }
+      // Redirecionar para a página de login do tenant atual (ex.: /empresax/login), não sempre /login
+      const currentTenant = getTenantSlugFromUrl();
+      const loginPath = currentTenant === "system" ? "/login" : `/${currentTenant}/login`;
+      if (window.location.pathname !== loginPath) {
+        window.location.replace(loginPath);
+      }
+      const error = new Error("Sessão expirada") as Error & { code?: string };
+      error.code = "UNAUTHORIZED";
+      throw error;
+    }
+    const error = new Error(payload.error || "Erro desconhecido") as Error & { code?: string };
+    error.code = payload.code;
     throw error;
   }
 
@@ -103,8 +132,8 @@ export const authApi = {
 
   me: () => get<{ user: AuthUser; tenant: Tenant }>("/auth/me"),
 
-  generateReset: (email: string) =>
-    post<{ email: string; code: string; expiresAt: string }>("/auth/generate-reset", { email }),
+  generateReset: (email: string, tenantSlug?: string) =>
+    post<{ email: string; code: string; expiresAt: string }>("/auth/generate-reset", { email, tenantSlug }),
 };
 
 export const tasksApi = {
@@ -139,9 +168,20 @@ export const tasksApi = {
 export const usersApi = {
   list: () => get<{ users: User[] }>("/users"),
 
-  listAll: () => get<{ users: User[] }>("/users/all"),
+  listAll: (tenantSlug?: string) => {
+    const qs = tenantSlug ? `?tenant=${encodeURIComponent(tenantSlug)}` : "";
+    return get<{ users: User[] }>(`/users/all${qs}`);
+  },
+  create: (data: Partial<User> & { tenantSlug?: string }) =>
+    post<{ user: User }>("/users", data),
 
-  create: (data: Partial<User>) => post<{ user: User }>("/users", data),
+  getLoginCounts: (from: string, to: string) => {
+    const params = new URLSearchParams({ from, to });
+    return get<{ counts: Record<string, number> }>(`/users/login-counts?${params}`);
+  },
+
+  bulkToggleActive: (ids: string[], active: boolean) =>
+    patch<{ updated: number }>("/users/bulk-toggle-active", { ids, active }),
 
   update: (id: string, data: Partial<User>) => put<{ user: User }>(`/users/${id}`, data),
 
@@ -159,6 +199,30 @@ export const lookupsApi = {
   rename: (id: string, value: string) => put<{ ok: boolean }>(`/lookups/${id}`, { value }),
 
   remove: (id: string) => del<{ ok: boolean }>(`/lookups/${id}`),
+
+  /** Admin Mestre: listas agrupadas de uma empresa */
+  listByTenant: (tenantSlug: string) =>
+    get<{ lookups: Lookups }>(`/lookups/by-tenant/${encodeURIComponent(tenantSlug)}`),
+
+  /** Admin Mestre: listas com metadata de uma empresa */
+  listAllByTenant: (tenantSlug: string) =>
+    get<{ lookups: LookupItem[] }>(`/lookups/by-tenant/${encodeURIComponent(tenantSlug)}/all`),
+
+  /** Admin Mestre: adicionar valor na empresa */
+  addForTenant: (tenantSlug: string, category: string, value: string) =>
+    post<{ id: string; category: string; value: string }>("/lookups/for-tenant", { tenantSlug, category, value }),
+
+  /** Admin Mestre: renomear valor na empresa */
+  renameForTenant: (tenantSlug: string, id: string, value: string) =>
+    put<{ ok: boolean }>(`/lookups/for-tenant/${id}`, { tenantSlug, value }),
+
+  /** Admin Mestre: remover valor na empresa */
+  removeForTenant: (tenantSlug: string, id: string) =>
+    del<{ ok: boolean }>(`/lookups/for-tenant/${id}?tenantSlug=${encodeURIComponent(tenantSlug)}`),
+
+  /** Admin Mestre: copiar listas de uma empresa para outra (substitui destino) */
+  copy: (sourceTenantSlug: string, targetTenantSlug: string) =>
+    post<{ ok: boolean; copied: number }>("/lookups/copy", { sourceTenantSlug, targetTenantSlug }),
 };
 
 export const rulesApi = {
@@ -171,8 +235,25 @@ export const rulesApi = {
 
   save: (area: string, allowedRecorrencias: string[]) =>
     put<{ rule: Rule }>("/rules", { area, allowedRecorrencias }),
+
+  /** Admin Mestre: regras de uma empresa */
+  listByTenant: (tenantSlug: string) =>
+    get<{ rules: Rule[] }>(`/rules/by-tenant/${encodeURIComponent(tenantSlug)}`),
+
+  /** Admin Mestre: salvar regra de uma área para uma empresa */
+  saveForTenant: (tenantSlug: string, area: string, allowedRecorrencias: string[]) =>
+    put<{ rule: Rule }>("/rules/for-tenant", { tenantSlug, area, allowedRecorrencias }),
 };
 
 export const tenantApi = {
   current: () => get<{ tenant: Tenant }>("/tenants/current"),
+  updateCurrent: (name: string) =>
+    patch<{ tenant: Tenant }>("/tenants/current", { name }),
+  /** Lista todas as empresas (apenas administrador do sistema). */
+  list: () => get<{ tenants: TenantListItem[] }>("/tenants"),
+  /** Cria nova empresa (Admin Mestre cadastra usuários depois na aba Usuários). */
+  create: (data: { slug: string; name: string }) =>
+    post<{ tenant: Tenant; accessUrl: string }>("/tenants", data),
+  toggleActive: (id: string) =>
+    patch<{ ok: boolean }>(`/tenants/${id}/toggle-active`),
 };

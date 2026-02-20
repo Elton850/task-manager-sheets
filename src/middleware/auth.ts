@@ -23,6 +23,26 @@ export function verifyToken(token: string): AuthUser {
   return jwt.verify(token, JWT_SECRET) as AuthUser;
 }
 
+/** Define req.user se houver token válido; não exige autenticação. */
+export function optionalAuth(req: Request, res: Response, next: NextFunction): void {
+  const token = req.cookies?.["auth_token"];
+  if (!token) {
+    next();
+    return;
+  }
+  try {
+    const payload = verifyToken(token);
+    if (req.tenantId && payload.tenantId !== req.tenantId) {
+      next();
+      return;
+    }
+    req.user = payload;
+  } catch {
+    // token inválido: seguir sem user
+  }
+  next();
+}
+
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const token = req.cookies?.["auth_token"];
   if (!token) {

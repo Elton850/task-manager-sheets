@@ -7,6 +7,17 @@ import { nowIso } from "../utils";
 const router = Router();
 router.use(requireAuth);
 
+const SYSTEM_TENANT_SLUG = "system";
+
+function isSystemAdmin(req: Request): boolean {
+  return !!(req.user && req.tenant?.slug === SYSTEM_TENANT_SLUG && req.user.role === "ADMIN");
+}
+
+function getTenantIdBySlug(slug: string): string | null {
+  const row = db.prepare("SELECT id FROM tenants WHERE slug = ? AND active = 1").get(slug) as { id: string } | undefined;
+  return row?.id ?? null;
+}
+
 interface RuleDbRow {
   id: string;
   tenant_id: string;
@@ -26,6 +37,72 @@ function rowToRule(row: RuleDbRow) {
     updatedBy: row.updated_by,
   };
 }
+
+// GET /api/rules/by-tenant/:tenantSlug — regras de uma empresa (só Admin Mestre)
+router.get("/by-tenant/:tenantSlug", (req: Request, res: Response): void => {
+  if (!isSystemAdmin(req)) {
+    res.status(403).json({ error: "Apenas o Administrador Mestre pode ver regras de outra empresa.", code: "FORBIDDEN" });
+    return;
+  }
+  try {
+    const tenantId = getTenantIdBySlug(req.params.tenantSlug);
+    if (!tenantId) {
+      res.status(404).json({ error: "Empresa não encontrada.", code: "NOT_FOUND" });
+      return;
+    }
+    const rows = db.prepare("SELECT * FROM rules WHERE tenant_id = ? ORDER BY area ASC").all(tenantId) as RuleDbRow[];
+    res.json({ rules: rows.map(rowToRule) });
+  } catch {
+    res.status(500).json({ error: "Erro ao buscar regras.", code: "INTERNAL" });
+  }
+});
+
+// PUT /api/rules/for-tenant — salvar regra de uma área para uma empresa (só Admin Mestre)
+router.put("/for-tenant", (req: Request, res: Response): void => {
+  if (!isSystemAdmin(req)) {
+    res.status(403).json({ error: "Apenas o Administrador Mestre pode definir regras de outra empresa.", code: "FORBIDDEN" });
+    return;
+  }
+  try {
+    const { tenantSlug, area, allowedRecorrencias } = req.body;
+    if (!tenantSlug || !area) {
+      res.status(400).json({ error: "tenantSlug e area são obrigatórios.", code: "MISSING_FIELDS" });
+      return;
+    }
+    const tenantId = getTenantIdBySlug(String(tenantSlug).trim().toLowerCase());
+    if (!tenantId) {
+      res.status(404).json({ error: "Empresa não encontrada.", code: "NOT_FOUND" });
+      return;
+    }
+    if (!Array.isArray(allowedRecorrencias)) {
+      res.status(400).json({ error: "allowedRecorrencias deve ser um array.", code: "VALIDATION" });
+      return;
+    }
+
+    const existing = db.prepare("SELECT id FROM rules WHERE tenant_id = ? AND area = ?")
+      .get(tenantId, area) as { id: string } | undefined;
+    const now = nowIso();
+    const allowedJson = JSON.stringify(allowedRecorrencias);
+
+    if (existing) {
+      db.prepare(`
+        UPDATE rules SET allowed_recorrencias = ?, updated_at = ?, updated_by = ?
+        WHERE tenant_id = ? AND area = ?
+      `).run(allowedJson, now, req.user!.email, tenantId, area);
+    } else {
+      db.prepare(`
+        INSERT INTO rules (id, tenant_id, area, allowed_recorrencias, updated_at, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(uuidv4(), tenantId, area, allowedJson, now, req.user!.email);
+    }
+
+    const updated = db.prepare("SELECT * FROM rules WHERE tenant_id = ? AND area = ?")
+      .get(tenantId, area) as RuleDbRow;
+    res.json({ rule: rowToRule(updated) });
+  } catch {
+    res.status(500).json({ error: "Erro ao salvar regra.", code: "INTERNAL" });
+  }
+});
 
 // GET /api/rules — rules for current user's area (or all areas for ADMIN)
 router.get("/", (req: Request, res: Response): void => {

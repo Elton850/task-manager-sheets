@@ -6,6 +6,11 @@ export interface Tenant {
   name: string;
 }
 
+export interface TenantListItem extends Tenant {
+  active: number;
+  created_at: string;
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -27,6 +32,9 @@ export interface User {
   canDelete: boolean;
   mustChangePassword: boolean;
   createdAt: string;
+  /** Preenchido quando Admin Mestre lista usuários de várias empresas */
+  tenantSlug?: string;
+  tenantName?: string;
 }
 
 export interface Task {
@@ -94,6 +102,16 @@ export interface PerformanceFilters {
   responsavel: string;
   recorrencia: string;
   tipo: string;
+}
+
+export interface UserFilters {
+  search: string;
+  area: string;
+  role: string;
+  status: string;
+  tenantSlug: string; // Admin Mestre: filtrar por empresa
+  from: string;
+  to: string;
 }
 
 export interface ResponsavelStats {

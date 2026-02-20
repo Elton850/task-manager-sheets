@@ -64,11 +64,9 @@ export function tenantMiddleware(req: Request, res: Response, next: NextFunction
   const p = (req.path || "").replace(/^\/api/, "") || "/";
   if (p === "/csrf" || p === "/health") return next();
 
-  const slug = resolveTenantSlug(req);
-  if (!slug) {
-    res.status(400).json({ error: "Tenant não identificado.", code: "NO_TENANT" });
-    return;
-  }
+  let slug = resolveTenantSlug(req);
+  // Admin Mestre pode acessar sem tenant na URL: tratamos como tenant "system"
+  if (!slug) slug = "system";
 
   const row = db.prepare("SELECT * FROM tenants WHERE slug = ? AND active = 1").get(slug) as TenantDbRow | undefined;
   if (!row) {

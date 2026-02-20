@@ -65,7 +65,7 @@ export default function PerformancePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => { load(); }, [load]);
 

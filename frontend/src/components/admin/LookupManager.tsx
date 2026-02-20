@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { Plus, Edit2, Trash2, Check, X } from "lucide-react";
+import { Plus, Edit2, Trash2, Check, X, Copy } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import Modal from "@/components/ui/Modal";
 import { lookupsApi } from "@/services/api";
 import { useToast } from "@/contexts/ToastContext";
 import type { LookupItem } from "@/types";
@@ -12,6 +13,10 @@ interface LookupManagerProps {
   onRefresh: () => void;
   /** Chamado após rename com sucesso para atualizar a UI na hora (atualização otimista). */
   onLookupRenamed?: (id: string, newValue: string, category: string, oldValue: string) => void;
+  /** Quando definido (Admin Mestre editando uma empresa), usa APIs for-tenant e exibe "Copiar de outra empresa". */
+  tenantSlug?: string;
+  /** Lista de empresas para o modal "Copiar de outra empresa" (slug + name). */
+  companies?: { slug: string; name: string }[];
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -20,13 +25,15 @@ const CATEGORY_LABELS: Record<string, string> = {
   TIPO: "Tipos de Tarefa",
 };
 
-export default function LookupManager({ items, onRefresh, onLookupRenamed }: LookupManagerProps) {
+export default function LookupManager({ items, onRefresh, onLookupRenamed, tenantSlug, companies = [] }: LookupManagerProps) {
   const { toast } = useToast();
   const [newValue, setNewValue] = useState<Record<string, string>>({});
   const [editId, setEditId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [loading, setLoading] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; value: string } | null>(null);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copySourceSlug, setCopySourceSlug] = useState("");
 
   const grouped = items.reduce<Record<string, LookupItem[]>>((acc, item) => {
     if (!acc[item.category]) acc[item.category] = [];
@@ -42,7 +49,11 @@ export default function LookupManager({ items, onRefresh, onLookupRenamed }: Loo
 
     setLoading(`add-${category}`);
     try {
-      await lookupsApi.add(category, val);
+      if (tenantSlug) {
+        await lookupsApi.addForTenant(tenantSlug, category, val);
+      } else {
+        await lookupsApi.add(category, val);
+      }
       setNewValue(p => ({ ...p, [category]: "" }));
       onRefresh();
       toast(`"${val}" adicionado com sucesso`, "success");
@@ -62,7 +73,11 @@ export default function LookupManager({ items, onRefresh, onLookupRenamed }: Loo
 
     setLoading(`rename-${id}`);
     try {
-      await lookupsApi.rename(id, val);
+      if (tenantSlug) {
+        await lookupsApi.renameForTenant(tenantSlug, id, val);
+      } else {
+        await lookupsApi.rename(id, val);
+      }
       onLookupRenamed?.(id, val, item.category, item.value);
       setEditId(null);
       setEditValue("");
@@ -80,7 +95,11 @@ export default function LookupManager({ items, onRefresh, onLookupRenamed }: Loo
 
     setLoading(`delete-${deleteTarget.id}`);
     try {
-      await lookupsApi.remove(deleteTarget.id);
+      if (tenantSlug) {
+        await lookupsApi.removeForTenant(tenantSlug, deleteTarget.id);
+      } else {
+        await lookupsApi.remove(deleteTarget.id);
+      }
       onRefresh();
       toast("Item removido", "success");
       setDeleteTarget(null);
@@ -91,8 +110,34 @@ export default function LookupManager({ items, onRefresh, onLookupRenamed }: Loo
     }
   };
 
+  const handleCopy = async () => {
+    if (!tenantSlug || !copySourceSlug) return;
+    setLoading("copy");
+    try {
+      const { copied } = await lookupsApi.copy(copySourceSlug, tenantSlug);
+      setCopyOpen(false);
+      setCopySourceSlug("");
+      onRefresh();
+      toast(`Listas copiadas: ${copied} itens.`, "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao copiar listas", "error");
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const copyOptions = companies.filter(c => c.slug !== tenantSlug);
+
   return (
     <div className="space-y-6">
+      {tenantSlug && copyOptions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+          <Button size="sm" variant="outline" onClick={() => setCopyOpen(true)} icon={<Copy size={14} />}>
+            Copiar de outra empresa
+          </Button>
+        </div>
+      )}
+
       {categories.map(category => (
         <div key={category}>
           <h3 className="text-sm font-semibold text-slate-800 mb-3">{CATEGORY_LABELS[category] || category}</h3>
@@ -184,6 +229,39 @@ export default function LookupManager({ items, onRefresh, onLookupRenamed }: Loo
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      <Modal
+        open={copyOpen}
+        onClose={() => { setCopyOpen(false); setCopySourceSlug(""); }}
+        title="Copiar listas de outra empresa"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setCopyOpen(false); setCopySourceSlug(""); }} disabled={loading === "copy"}>
+              Cancelar
+            </Button>
+            <Button variant="primary" onClick={handleCopy} loading={loading === "copy"} disabled={!copySourceSlug}>
+              Copiar
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-slate-700">
+            As listas de valores da empresa selecionada substituirão as atuais (áreas, recorrências, tipos).
+          </p>
+          <select
+            value={copySourceSlug}
+            onChange={e => setCopySourceSlug(e.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">Selecione a empresa de origem</option>
+            {copyOptions.map(c => (
+              <option key={c.slug} value={c.slug}>{c.name} ({c.slug})</option>
+            ))}
+          </select>
+        </div>
+      </Modal>
     </div>
   );
 }

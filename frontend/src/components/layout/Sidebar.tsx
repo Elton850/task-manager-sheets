@@ -1,10 +1,12 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
+import { useBasePath } from "@/contexts/BasePathContext";
 import {
   LayoutDashboard,
   Calendar,
   BarChart2,
   Users,
+  Building2,
   Settings,
   LogOut,
   ChevronLeft,
@@ -23,20 +25,33 @@ interface NavItem {
   icon: React.ReactNode;
   label: string;
   roles?: string[];
+  /** Mostrar apenas quando o tenant for "system" (administrador do sistema). */
+  systemOnly?: boolean;
+  /** Ocultar quando o tenant for "system". */
+  notSystem?: boolean;
 }
 
 const navItems: NavItem[] = [
   { to: "/calendar", icon: <Calendar size={18} />, label: "Calendário" },
   { to: "/tasks", icon: <LayoutDashboard size={18} />, label: "Tarefas" },
   { to: "/performance", icon: <BarChart2 size={18} />, label: "Performance" },
-  { to: "/users", icon: <Users size={18} />, label: "Usuários", roles: ["ADMIN"] },
+  { to: "/users", icon: <Users size={18} />, label: "Usuários", roles: ["ADMIN", "LEADER"] },
+  { to: "/empresas", icon: <Building2 size={18} />, label: "Cadastro de empresas", roles: ["ADMIN"], systemOnly: true },
+  { to: "/empresa", icon: <Building2 size={18} />, label: "Empresa", roles: ["ADMIN"], notSystem: true },
   { to: "/admin", icon: <Settings size={18} />, label: "Configurações", roles: ["ADMIN", "LEADER"] },
 ];
 
 export default function Sidebar({ open, onToggle }: SidebarProps) {
   const { user, tenant, logout } = useAuth();
+  const basePath = useBasePath();
+  const isSystemAdmin = tenant?.slug === "system" && user?.role === "ADMIN";
 
-  const visibleItems = navItems.filter(item => !item.roles || item.roles.includes(user?.role || ""));
+  const visibleItems = navItems.filter(item => {
+    if (item.roles && !item.roles.includes(user?.role || "")) return false;
+    if (item.systemOnly && !isSystemAdmin) return false;
+    if (item.notSystem && isSystemAdmin) return false;
+    return true;
+  });
 
   return (
     <>
@@ -53,7 +68,9 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
       >
         <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <img src={logo} alt="Alvoar Lácteos" className="h-9 w-auto rounded-md border border-slate-200" />
+            <div className="h-9 w-9 flex-shrink-0 rounded-lg border border-slate-200 overflow-hidden bg-white flex items-center justify-center p-0.5">
+              <img src={logo} alt="Task Manager" className="w-full h-full object-contain" />
+            </div>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-brand-900 truncate">{tenant?.name || "Task Manager"}</div>
               <div className="text-xs text-slate-500 truncate">{tenant?.slug ? `@${tenant.slug}` : "v2.0"}</div>
@@ -73,7 +90,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
           {visibleItems.map(item => (
             <NavLink
               key={item.to}
-              to={item.to}
+              to={`${basePath}${item.to}`}
               className={({ isActive }) => `
                 flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium
                 transition-all duration-150

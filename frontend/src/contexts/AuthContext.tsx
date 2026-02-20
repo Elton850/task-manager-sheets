@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { authApi } from "@/services/api";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import { authApi, clearCsrfToken } from "@/services/api";
 import type { AuthUser, Tenant } from "@/types";
 
 interface AuthContextValue {
@@ -9,6 +9,8 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   setUser: (user: AuthUser | null) => void;
+  /** Atualiza user e tenant a partir do cookie (útil após reset de senha). */
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -36,22 +38,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkSession();
   }, [checkSession]);
 
-  const login = async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     const { user: u } = await authApi.login(email, password);
-    // Re-fetch to get tenant info
     const { user: me, tenant: t } = await authApi.me();
     setUser(me);
     setTenant(t);
-  };
+  }, []);
 
-  const logout = async () => {
+  const refreshSession = useCallback(async () => {
+    const { user: me, tenant: t } = await authApi.me();
+    setUser(me);
+    setTenant(t);
+  }, []);
+
+  const logout = useCallback(async () => {
     await authApi.logout();
+    clearCsrfToken();
     setUser(null);
     setTenant(null);
-  };
+  }, []);
+
+  const value = useMemo(
+    () => ({ user, tenant, loading, login, logout, setUser, refreshSession }),
+    [user, tenant, loading, login, logout, refreshSession]
+  );
 
   return (
-    <AuthContext.Provider value={{ user, tenant, loading, login, logout, setUser }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

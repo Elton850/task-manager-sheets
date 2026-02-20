@@ -10,9 +10,11 @@ interface RulesManagerProps {
   rules: Rule[];
   lookups: Lookups;
   onRefresh: () => void;
+  /** Quando definido (Admin Mestre editando uma empresa), salva regras para essa empresa. */
+  tenantSlug?: string;
 }
 
-export default function RulesManager({ rules, lookups, onRefresh }: RulesManagerProps) {
+export default function RulesManager({ rules, lookups, onRefresh, tenantSlug }: RulesManagerProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [selected, setSelected] = useState<Record<string, Set<string>>>({});
@@ -43,7 +45,11 @@ export default function RulesManager({ rules, lookups, onRefresh }: RulesManager
     setSaving(area);
     try {
       const allowed = Array.from(selected[area] || []);
-      await rulesApi.save(area, allowed);
+      if (tenantSlug) {
+        await rulesApi.saveForTenant(tenantSlug, area, allowed);
+      } else {
+        await rulesApi.save(area, allowed);
+      }
       onRefresh();
       toast(`Regras de "${area}" salvas com sucesso`, "success");
     } catch (err) {
@@ -61,8 +67,7 @@ export default function RulesManager({ rules, lookups, onRefresh }: RulesManager
             <h3 className="text-sm font-semibold text-slate-900">{area}</h3>
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-600 font-medium">
-                {(selected[area]?.size || 0)} recorrência{(selected[area]?.size || 0) !== 1 ? "s" : ""} permitida
-                {(selected[area]?.size || 0) !== 1 ? "s" : ""}
+                {(selected[area]?.size || 0)} recorrência{(selected[area]?.size || 0) !== 1 ? "s" : ""} permitida{(selected[area]?.size || 0) !== 1 ? "s" : ""}
               </span>
               <Button size="sm" onClick={() => handleSave(area)} loading={saving === area} icon={<Save size={13} />}>
                 Salvar

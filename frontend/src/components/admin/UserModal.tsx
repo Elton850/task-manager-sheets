@@ -3,18 +3,22 @@ import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
+import { lookupsApi } from "@/services/api";
 import type { User, Lookups } from "@/types";
 
 interface UserModalProps {
   open: boolean;
   user?: User | null;
   lookups: Lookups;
+  companyName?: string;
+  /** Admin Mestre: lista de empresas para vincular o novo usuário */
+  companies?: { slug: string; name: string }[];
   onClose: () => void;
-  onSave: (data: Partial<User>) => Promise<void>;
+  onSave: (data: Partial<User> & { tenantSlug?: string }) => Promise<void>;
   loading?: boolean;
 }
 
-export default function UserModal({ open, user, lookups, onClose, onSave, loading }: UserModalProps) {
+export default function UserModal({ open, user, lookups, companyName, companies, onClose, onSave, loading }: UserModalProps) {
   const isEdit = !!user;
 
   const [form, setForm] = useState({
@@ -23,8 +27,11 @@ export default function UserModal({ open, user, lookups, onClose, onSave, loadin
     role: user?.role || "USER",
     area: user?.area || "",
     canDelete: user?.canDelete || false,
+    tenantSlug: (user as User & { tenantSlug?: string })?.tenantSlug || "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  /** Lookups da empresa selecionada (Admin Mestre criando/editando usuário de empresa) */
+  const [companyLookups, setCompanyLookups] = useState<Lookups | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -34,10 +41,27 @@ export default function UserModal({ open, user, lookups, onClose, onSave, loadin
         role: user?.role || "USER",
         area: user?.area || "",
         canDelete: user?.canDelete || false,
+        tenantSlug: (user as User & { tenantSlug?: string })?.tenantSlug || "",
       });
       setErrors({});
+      setCompanyLookups(null);
     }
   }, [open, user]);
+
+  /** Carrega áreas da empresa quando Admin Mestre seleciona uma empresa (criar/editar usuário). */
+  useEffect(() => {
+    if (!open || !form.tenantSlug || form.tenantSlug === "system" || !companies?.length) {
+      setCompanyLookups(null);
+      return;
+    }
+    let cancelled = false;
+    lookupsApi.listByTenant(form.tenantSlug).then((res) => {
+      if (!cancelled) setCompanyLookups(res.lookups);
+    }).catch(() => {
+      if (!cancelled) setCompanyLookups({});
+    });
+    return () => { cancelled = true; };
+  }, [open, form.tenantSlug, companies?.length]);
 
   const set = (field: string, value: string | boolean) => {
     setForm(f => ({ ...f, [field]: value }));
@@ -49,23 +73,33 @@ export default function UserModal({ open, user, lookups, onClose, onSave, loadin
     if (!form.nome.trim()) errs.nome = "Nome é obrigatório";
     if (!isEdit && !form.email.trim()) errs.email = "Email é obrigatório";
     if (!isEdit && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = "Email inválido";
-    if (!form.role) errs.role = "Role é obrigatório";
+    if (!form.role) errs.role = "Função é obrigatória";
     if (!form.area) errs.area = "Área é obrigatória";
+    if (!isEdit && companies && companies.length > 0 && !form.tenantSlug) errs.tenantSlug = "Selecione a empresa";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
   const handleSubmit = async () => {
     if (!validate()) return;
-    await onSave(form as Partial<User>);
+    const payload: Partial<User> & { tenantSlug?: string } = { nome: form.nome, email: form.email, role: form.role as User["role"], area: form.area, canDelete: form.canDelete };
+    if (!isEdit && form.tenantSlug) payload.tenantSlug = form.tenantSlug;
+    await onSave(payload);
   };
 
-  const areaOptions = (lookups.AREA || []).map(v => ({ value: v, label: v }));
-  const roleOptions = [
-    { value: "USER", label: "Usuário" },
-    { value: "LEADER", label: "Líder" },
-    { value: "ADMIN", label: "Administrador" },
-  ];
+  const areasForOptions = (companyLookups?.AREA ?? lookups.AREA ?? []);
+  const areaOptions = areasForOptions.map(v => ({ value: v, label: v }));
+  const isCompanyUser = companies && form.tenantSlug && form.tenantSlug !== "system";
+  const roleOptions = isCompanyUser
+    ? [
+        { value: "USER", label: "Usuário" },
+        { value: "LEADER", label: "Líder" },
+      ]
+    : [
+        { value: "USER", label: "Usuário" },
+        { value: "LEADER", label: "Líder" },
+        { value: "ADMIN", label: "Administrador" },
+      ];
 
   return (
     <Modal
@@ -84,6 +118,24 @@ export default function UserModal({ open, user, lookups, onClose, onSave, loadin
       }
     >
       <div className="space-y-4">
+        {companyName && !companies?.length && (
+          <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3">
+            <p className="text-xs font-medium text-slate-500 mb-0.5">Empresa</p>
+            <p className="text-sm font-medium text-slate-800">{companyName}</p>
+            <p className="text-xs text-slate-500 mt-0.5">O usuário será vinculado a esta empresa.</p>
+          </div>
+        )}
+        {!isEdit && companies && companies.length > 0 && (
+          <Select
+            label="Empresa"
+            required
+            value={form.tenantSlug}
+            onChange={(e) => set("tenantSlug", e.target.value)}
+            options={companies.map((c) => ({ value: c.slug, label: c.name }))}
+            placeholder="Selecione a empresa"
+            error={errors.tenantSlug}
+          />
+        )}
         <Input
           label="Nome completo"
           required

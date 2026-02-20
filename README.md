@@ -9,9 +9,11 @@ Sistema de gerenciamento de tarefas com multi-tenant, calendário, desempenho po
 - **Calendário** — visão por mês e por dia, conclusão de tarefas direto no calendário
 - **Tarefas** — listagem, filtros, criação/edição com recorrência, área e tipo; evidências (anexos)
 - **Performance** — indicadores e tabela por responsável
-- **Usuários** — gestão de usuários (ADMIN)
+- **Usuários** — gestão de usuários por empresa (ADMIN vê todos da empresa; LEADER vê só usuários da sua área)
+- **Cadastro de empresas** — um único **administrador do sistema** (tenant `system`) cadastra as empresas; cada empresa tem seu próprio ADMIN, que cadastra Líderes e Usuários vinculados àquela empresa
+- **Empresa** — ADMIN de cada empresa pode editar o nome da empresa (dados da empresa)
 - **Configurações** — listas de valores (áreas, recorrências, tipos) e regras de recorrência por área (ADMIN/LEADER)
-- **Multi-tenant** — isolamento por tenant (slug na URL ou subdomínio)
+- **Multi-tenant** — isolamento por empresa; ao logar, cada usuário vê somente os dados da sua empresa; Líder vê apenas usuários da sua área
 - **Autenticação** — login com JWT, cookies httpOnly, roles e permissões
 
 ---
@@ -85,16 +87,21 @@ npm run dev:all
 
 Acesso: `http://localhost:5173?tenant=demo` (ou o slug do tenant configurado).
 
+**Administrador do sistema (cadastro de empresas):** acesse com `?tenant=system` e faça login com o usuário criado pelas variáveis `SYSTEM_ADMIN_EMAIL` e `SYSTEM_ADMIN_PASSWORD` (veja abaixo). Esse usuário é o único que vê o menu "Cadastro de empresas" e pode criar novas empresas (cada uma com seu próprio ADMIN).
+
 ---
 
 ## Variáveis de ambiente
 
-| Variável         | Descrição                          | Exemplo                    |
-|------------------|------------------------------------|----------------------------|
-| `PORT`           | Porta do servidor                  | `3000`                     |
-| `NODE_ENV`       | Ambiente                           | `development` / `production` |
-| `JWT_SECRET`     | Chave para assinatura do JWT        | string longa e aleatória   |
-| `SUPER_ADMIN_KEY`| Chave para gestão de tenants       | string secreta            |
+| Variável                 | Descrição                                          | Exemplo                    |
+|--------------------------|----------------------------------------------------|----------------------------|
+| `PORT`                   | Porta do servidor                                  | `3000`                     |
+| `NODE_ENV`               | Ambiente                                           | `development` / `production` |
+| `JWT_SECRET`             | Chave para assinatura do JWT                        | string longa e aleatória   |
+| `SUPER_ADMIN_KEY`        | Chave para gestão de tenants (API/scripts)          | string secreta             |
+| `SYSTEM_ADMIN_EMAIL`     | Email do administrador do sistema (criado na 1ª execução) | `admin@sistema.com` |
+| `SYSTEM_ADMIN_PASSWORD`  | Senha do administrador do sistema (mín. 6 caracteres)    | senha segura        |
+| `SYSTEM_ADMIN_NOME`      | Nome do administrador do sistema (opcional)        | `Admin Sistema`            |
 
 ---
 

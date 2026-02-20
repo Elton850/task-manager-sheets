@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, Lock } from "lucide-react";
+import { Plus, RefreshCw, Lock, FileDown } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import TaskTable from "@/components/tasks/TaskTable";
@@ -9,6 +9,7 @@ import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/contexts/ToastContext";
 import { tasksApi, usersApi, lookupsApi, rulesApi } from "@/services/api";
+import { exportTasksToCsv, exportTasksToPdf } from "@/utils/exportTasks";
 import type { Task, TaskFilters as Filters, Lookups, User } from "@/types";
 
 const DEFAULT_FILTERS: Filters = {
@@ -182,9 +183,41 @@ export default function TasksPage() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button variant="ghost" size="sm" onClick={load} icon={<RefreshCw size={14} />}>
             Atualizar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<FileDown size={14} />}
+            onClick={() => {
+              if (!filteredTasks.length) {
+                toast("Nenhuma tarefa para exportar. Ajuste os filtros.", "warning");
+                return;
+              }
+              exportTasksToCsv(filteredTasks);
+              toast("Download CSV iniciado", "success");
+            }}
+            title="Baixar tabela em CSV"
+          >
+            CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<FileDown size={14} />}
+            onClick={() => {
+              if (!filteredTasks.length) {
+                toast("Nenhuma tarefa para exportar. Ajuste os filtros.", "warning");
+                return;
+              }
+              exportTasksToPdf(filteredTasks);
+              toast("Download PDF iniciado", "success");
+            }}
+            title="Baixar tabela em PDF"
+          >
+            PDF
           </Button>
           <Button
             size="sm"

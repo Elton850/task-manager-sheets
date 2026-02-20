@@ -17,6 +17,9 @@ import tenantRoutes from "./routes/tenants";
 
 // Initialize DB schema on startup
 import "./db";
+import { seedSystemAdminIfNeeded } from "./db/seedSystemAdmin";
+
+seedSystemAdminIfNeeded();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
