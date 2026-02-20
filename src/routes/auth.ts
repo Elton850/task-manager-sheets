@@ -5,6 +5,7 @@ import crypto from "crypto";
 import db from "../db";
 import { signToken, requireAuth, AuthError } from "../middleware/auth";
 import { safeLowerEmail, toBool, nowIso } from "../utils";
+import { sendResetCodeEmail } from "../services/email";
 import type { AuthUser } from "../types";
 
 const router = Router();
@@ -100,6 +101,49 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
     } else {
       res.status(500).json({ error: "Erro interno.", code: "INTERNAL" });
     }
+  }
+});
+
+// POST /api/auth/request-reset — usuário solicita código por e-mail (sem auth; tenant obrigatório)
+// Resposta sempre genérica para não revelar se o e-mail existe; valida inatividade
+router.post("/request-reset", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email: emailRaw } = req.body;
+    if (!emailRaw || typeof emailRaw !== "string" || !String(emailRaw).trim()) {
+      res.status(400).json({ message: "Informe o e-mail." });
+      return;
+    }
+
+    const email = safeLowerEmail(emailRaw);
+    const tenantId = req.tenantId!;
+
+    const row = db.prepare("SELECT id, nome, active FROM users WHERE tenant_id = ? AND email = ?")
+      .get(tenantId, email) as { id: string; nome: string; active: number } | undefined;
+
+    if (row && row.active === 1) {
+      const code = genResetCode();
+      const resetCodeHash = await bcrypt.hash(code, 12);
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      db.prepare(`
+        UPDATE users SET must_change_password = 1, reset_code_hash = ?, reset_code_expires_at = ?
+        WHERE id = ?
+      `).run(resetCodeHash, expiresAt, row.id);
+
+      const tenantRow = db.prepare("SELECT name FROM tenants WHERE id = ?").get(tenantId) as { name: string } | undefined;
+      await sendResetCodeEmail({
+        to: email,
+        userName: row.nome,
+        code,
+        expiresAt,
+        tenantName: tenantRow?.name,
+      });
+    }
+
+    res.json({
+      message: "Se o e-mail estiver cadastrado e ativo, você receberá o código em instantes. Verifique sua caixa de entrada.",
+    });
+  } catch {
+    res.status(500).json({ message: "Erro ao processar. Tente novamente em alguns minutos." });
   }
 });
 
@@ -316,7 +360,120 @@ router.post("/generate-reset", requireAuth, async (req: Request, res: Response):
       WHERE tenant_id = ? AND email = ?
     `).run(resetCodeHash, expiresAt, tenantId, email);
 
-    res.json({ email, code, expiresAt });
+    const tenantRow = db.prepare("SELECT name FROM tenants WHERE id = ?").get(tenantId) as { name: string } | undefined;
+    const tenantName = tenantRow?.name;
+
+    const emailResult = await sendResetCodeEmail({
+      to: email,
+      userName: row.nome,
+      code,
+      expiresAt,
+      tenantName,
+    });
+
+    if (emailResult.sent) {
+      res.json({ email, expiresAt, sentByEmail: true });
+    } else {
+      res.json({
+        email,
+        expiresAt,
+        sentByEmail: false,
+        emailError: emailResult.error ?? "Falha ao enviar e-mail.",
+      });
+    }
+  } catch {
+    res.status(500).json({ error: "Erro interno.", code: "INTERNAL" });
+  }
+});
+
+const BULK_RESET_MAX = 50;
+
+// POST /api/auth/generate-reset-bulk — Admin Mestre: envia código por e-mail para vários usuários
+router.post("/generate-reset-bulk", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (req.user!.role !== "ADMIN" || req.tenant?.slug !== "system") {
+      res.status(403).json({ error: "Apenas o administrador mestre pode enviar códigos em massa.", code: "FORBIDDEN" });
+      return;
+    }
+
+    const userIds = Array.isArray(req.body.userIds) ? req.body.userIds : [];
+    if (userIds.length === 0) {
+      res.status(400).json({ error: "userIds deve ser um array não vazio.", code: "MISSING_USER_IDS" });
+      return;
+    }
+    if (userIds.length > BULK_RESET_MAX) {
+      res.status(400).json({
+        error: `Máximo de ${BULK_RESET_MAX} usuários por vez.`,
+        code: "TOO_MANY",
+      });
+      return;
+    }
+
+    const systemTenant = db.prepare("SELECT id FROM tenants WHERE slug = 'system'").get() as { id: string } | undefined;
+    if (!systemTenant) {
+      res.status(500).json({ error: "Configuração do sistema inválida.", code: "INTERNAL" });
+      return;
+    }
+
+    const results: { userId: string; email: string; sent: boolean; error?: string }[] = [];
+    let sent = 0;
+    let failed = 0;
+
+    for (const userId of userIds) {
+      if (typeof userId !== "string" || !userId.trim()) {
+        results.push({ userId: String(userId), email: "", sent: false, error: "ID inválido." });
+        failed++;
+        continue;
+      }
+
+      const row = db.prepare(
+        "SELECT id, tenant_id, email, nome, active FROM users WHERE id = ?"
+      ).get(userId.trim()) as (UserDbRow & { active: number }) | undefined;
+
+      if (!row) {
+        results.push({ userId: userId.trim(), email: "", sent: false, error: "Usuário não encontrado." });
+        failed++;
+        continue;
+      }
+      if (row.tenant_id === systemTenant.id) {
+        results.push({ userId: row.id, email: row.email, sent: false, error: "Não é permitido para admin do sistema." });
+        failed++;
+        continue;
+      }
+      if (row.active === 0) {
+        results.push({ userId: row.id, email: row.email, sent: false, error: "Usuário inativo." });
+        failed++;
+        continue;
+      }
+
+      const code = genResetCode();
+      const resetCodeHash = await bcrypt.hash(code, 12);
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+      db.prepare(`
+        UPDATE users SET must_change_password = 1, reset_code_hash = ?, reset_code_expires_at = ?
+        WHERE id = ?
+      `).run(resetCodeHash, expiresAt, row.id);
+
+      const tenantRow = db.prepare("SELECT name FROM tenants WHERE id = ?").get(row.tenant_id) as { name: string } | undefined;
+      const emailResult = await sendResetCodeEmail({
+        to: row.email,
+        userName: row.nome,
+        code,
+        expiresAt,
+        tenantName: tenantRow?.name,
+      });
+
+      if (emailResult.sent) {
+        results.push({ userId: row.id, email: row.email, sent: true });
+        sent++;
+      } else {
+        results.push({ userId: row.id, email: row.email, sent: false, error: emailResult.error ?? "Falha ao enviar e-mail." });
+        failed++;
+      }
+    }
+
+    res.json({ sent, failed, results });
   } catch {
     res.status(500).json({ error: "Erro interno.", code: "INTERNAL" });
   }

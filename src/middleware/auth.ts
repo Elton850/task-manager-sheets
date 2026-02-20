@@ -23,7 +23,7 @@ export function verifyToken(token: string): AuthUser {
   return jwt.verify(token, JWT_SECRET) as AuthUser;
 }
 
-const SKIP_AUTH_PATHS = new Set(["/auth/login", "/auth/reset", "/csrf", "/health"]);
+const SKIP_AUTH_PATHS = new Set(["/auth/login", "/auth/reset", "/auth/request-reset", "/csrf", "/health"]);
 
 /** Preenche req.user e req.impersonating para rotas /api (exceto login/reset/csrf/health). */
 export function apiAuthContext(req: Request, res: Response, next: NextFunction): void {

@@ -116,6 +116,7 @@ export interface UserFilters {
   role: string;
   status: string;
   tenantSlug: string; // Admin Mestre: filtrar por empresa
+  withoutPassword: string; // Admin Mestre: "1" = somente usuários sem senha definida
   from: string;
   to: string;
 }

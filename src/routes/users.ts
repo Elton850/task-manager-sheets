@@ -70,29 +70,38 @@ router.get("/", (req: Request, res: Response): void => {
   }
 });
 
-// GET /api/users/all — Admin Mestre: ?tenant=slug ou todos; demais: usuários do tenant (ADMIN/LEADER)
+const WITHOUT_PASSWORD_CONDITION = "(u.must_change_password = 1 OR TRIM(COALESCE(u.password_hash, '')) = '')";
+
+// GET /api/users/all — Admin Mestre: ?tenant=slug ou todos; ?withoutPassword=1 só usuários sem senha (mestre)
 router.get("/all", requireRole("ADMIN", "LEADER"), (req: Request, res: Response): void => {
   try {
     const user = req.user!;
     const tenantId = req.tenantId!;
     const filterTenantSlug = req.query.tenant as string | undefined;
+    const onlyWithoutPassword = req.query.withoutPassword === "1" && isMasterAdmin(req);
 
     if (isMasterAdmin(req)) {
-      // Admin Mestre: listar todos ou filtrar por tenant
+      // Admin Mestre: listar todos ou filtrar por tenant e opcionalmente só sem senha
       if (filterTenantSlug) {
         const t = db.prepare("SELECT id, slug, name FROM tenants WHERE slug = ?").get(filterTenantSlug) as { id: string; slug: string; name: string } | undefined;
         if (!t) {
           res.status(404).json({ error: "Empresa não encontrada.", code: "NOT_FOUND" });
           return;
         }
-        const rows = db.prepare("SELECT * FROM users WHERE tenant_id = ? ORDER BY nome ASC").all(t.id) as UserDbRow[];
+        const sql = onlyWithoutPassword
+          ? "SELECT * FROM users u WHERE u.tenant_id = ? AND (u.must_change_password = 1 OR TRIM(COALESCE(u.password_hash, '')) = '') ORDER BY u.nome ASC"
+          : "SELECT * FROM users WHERE tenant_id = ? ORDER BY nome ASC";
+        const rows = db.prepare(sql).all(t.id) as UserDbRow[];
         res.json({ users: rows.map((r) => rowToUser(r, t.slug, t.name)) });
       } else {
+        const whereClause = onlyWithoutPassword
+          ? `WHERE t.slug != ? AND ${WITHOUT_PASSWORD_CONDITION}`
+          : "WHERE t.slug != ?";
         const rows = db.prepare(`
           SELECT u.*, t.slug AS tenant_slug, t.name AS tenant_name
           FROM users u
           INNER JOIN tenants t ON u.tenant_id = t.id
-          WHERE t.slug != ?
+          ${whereClause}
           ORDER BY t.name ASC, u.nome ASC
         `).all(SYSTEM_TENANT_SLUG) as (UserDbRow & { tenant_slug: string; tenant_name: string })[];
         const users = rows.map((r) => {

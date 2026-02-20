@@ -23,7 +23,6 @@ import UserModal from "@/components/admin/UserModal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import Input from "@/components/ui/Input";
-import Modal from "@/components/ui/Modal";
 import Select from "@/components/ui/Select";
 import { useToast } from "@/contexts/ToastContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -47,6 +46,7 @@ const DEFAULT_FILTERS: UserFilters = {
   role: "",
   status: "",
   tenantSlug: "",
+  withoutPassword: "",
   from: getDefaultFrom(),
   to: getDefaultTo(),
 };
@@ -98,13 +98,13 @@ export default function UsersPage() {
   const [toggleTarget, setToggleTarget] = useState<User | null>(null);
   const [toggling, setToggling] = useState(false);
 
-  const [resetUser, setResetUser] = useState<User | null>(null);
-  const [resetCode, setResetCode] = useState<string | null>(null);
-  const [resetting, setResetting] = useState(false);
+  const [sendingResetId, setSendingResetId] = useState<string | null>(null);
 
   const [bulkInactivateTarget, setBulkInactivateTarget] = useState<number | null>(null);
   const [bulkReactivateTarget, setBulkReactivateTarget] = useState<number | null>(null);
   const [bulking, setBulking] = useState(false);
+  const [bulkResetTargetCount, setBulkResetTargetCount] = useState<number | null>(null);
+  const [bulkResetting, setBulkResetting] = useState(false);
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
 
   const set = (field: keyof UserFilters, value: string) =>
@@ -114,7 +114,10 @@ export default function UsersPage() {
     setLoading(true);
     try {
       const [usersRes, lookupsRes] = await Promise.all([
-        usersApi.listAll(isMasterAdmin ? (filters.tenantSlug || undefined) : undefined),
+        usersApi.listAll(
+          isMasterAdmin ? (filters.tenantSlug || undefined) : undefined,
+          isMasterAdmin && filters.withoutPassword === "1"
+        ),
         lookupsApi.list(),
       ]);
       setUsers(usersRes.users);
@@ -124,7 +127,7 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [toast, isMasterAdmin, filters.tenantSlug]);
+  }, [toast, isMasterAdmin, filters.tenantSlug, filters.withoutPassword]);
 
   useEffect(() => {
     if (isMasterAdmin) {
@@ -177,6 +180,10 @@ export default function UsersPage() {
     () => filtered.filter((u) => !u.active),
     [filtered]
   );
+  const withoutPasswordFiltered = useMemo(
+    () => filtered.filter((u) => u.mustChangePassword),
+    [filtered]
+  );
   const totalLoginsInPeriod = useMemo(
     () =>
       filtered.reduce((acc, u) => acc + (loginCounts[u.id] ?? 0), 0),
@@ -217,6 +224,20 @@ export default function UsersPage() {
       setSelectedIds((prev) => new Set([...prev, ...activeIds]));
     }
   };
+  const toggleSelectAllWithoutPassword = () => {
+    if (!isMasterAdmin) return;
+    const withoutPwIds = new Set(withoutPasswordFiltered.map((u) => u.id));
+    if (withoutPasswordFiltered.length > 0 && withoutPasswordFiltered.every((u) => selectedIds.has(u.id))) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        withoutPwIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => new Set([...prev, ...withoutPwIds]));
+    }
+  };
+
   const toggleSelectAllInactive = () => {
     if (!isAdmin) return;
     const inactiveIds = new Set(inactiveFiltered.map((u) => u.id));
@@ -325,6 +346,34 @@ export default function UsersPage() {
     }
   };
 
+  const handleBulkReset = async () => {
+    if (bulkResetTargetCount === null) return;
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkResetting(true);
+    try {
+      const { sent, failed, results } = await authApi.generateResetBulk(ids);
+      await load();
+      setBulkResetTargetCount(null);
+      if (failed === 0) {
+        toast(`${sent} código(s) enviado(s) por e-mail.`, "success");
+        setSelectedIds(new Set());
+      } else if (sent === 0) {
+        toast(`Nenhum e-mail enviado. ${failed} falha(s).`, "error");
+      } else {
+        toast(`${sent} enviado(s), ${failed} falha(s). Verifique os usuários inativos ou sem e-mail válido.`, "warning");
+      }
+      const withError = results.filter((r) => !r.sent && r.error);
+      if (withError.length > 0 && withError.length <= 5) {
+        withError.forEach((r) => toast(`${r.email}: ${r.error}`, "error"));
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao enviar códigos em massa", "error");
+    } finally {
+      setBulkResetting(false);
+    }
+  };
+
   const handleViewAs = async (u: User) => {
     if (!isMasterAdmin) return;
     setImpersonatingId(u.id);
@@ -339,17 +388,20 @@ export default function UsersPage() {
     }
   };
 
-  const handleGenerateReset = async () => {
-    if (!resetUser) return;
-    setResetting(true);
+  const handleSendResetEmail = async (u: User) => {
+    const tenantSlug = (u as User & { tenantSlug?: string }).tenantSlug ?? tenant?.slug;
+    setSendingResetId(u.id);
     try {
-      const { code } = await authApi.generateReset(resetUser.email, resetUser.tenantSlug);
-      setResetCode(code);
-      toast("Código gerado!", "success");
+      const data = await authApi.generateReset(u.email, tenantSlug);
+      if (data.sentByEmail) {
+        toast(`E-mail enviado para ${u.email}`, "success");
+      } else {
+        toast(data.emailError ? `Falha para ${u.email}: ${data.emailError}` : "Falha ao enviar e-mail.", "error");
+      }
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erro ao gerar código", "error");
+      toast(err instanceof Error ? err.message : "Erro ao enviar e-mail", "error");
     } finally {
-      setResetting(false);
+      setSendingResetId(null);
     }
   };
 
@@ -444,6 +496,20 @@ export default function UsersPage() {
                 />
               </div>
             )}
+            {isMasterAdmin && (
+              <div className="min-w-0">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Senha</label>
+                <Select
+                  options={[
+                    { value: "", label: "Todos" },
+                    { value: "1", label: "Somente sem senha" },
+                  ]}
+                  value={filters.withoutPassword}
+                  onChange={(e) => set("withoutPassword", e.target.value)}
+                  className="w-full min-w-0"
+                />
+              </div>
+            )}
             <div className="min-w-0 flex items-end gap-2">
               <div className="flex-1 min-w-0">
                 <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -519,6 +585,19 @@ export default function UsersPage() {
             Acessaram no período
           </div>
         </div>
+        {isMasterAdmin && (
+          <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-4">
+            <div className="text-violet-600 mb-2">
+              <Key size={18} />
+            </div>
+            <div className="text-2xl font-bold text-violet-700">
+              {withoutPasswordFiltered.length}
+            </div>
+            <div className="text-xs text-slate-600 mt-0.5 font-medium">
+              Sem senha definida
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Ações em massa (só ADMIN) */}
@@ -544,6 +623,24 @@ export default function UsersPage() {
               {inactiveFiltered.every((u) => selectedIds.has(u.id))
                 ? "Desmarcar inativos"
                 : `Selecionar inativos (${inactiveFiltered.length})`}
+            </Button>
+          )}
+          {isMasterAdmin && withoutPasswordFiltered.length > 0 && (
+            <Button variant="outline" size="sm" onClick={toggleSelectAllWithoutPassword}>
+              {withoutPasswordFiltered.every((u) => selectedIds.has(u.id))
+                ? "Desmarcar sem senha"
+                : `Selecionar sem senha (${withoutPasswordFiltered.length})`}
+            </Button>
+          )}
+          {isMasterAdmin && selectedIds.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-brand-700 border-brand-300 hover:bg-brand-50"
+              onClick={() => setBulkResetTargetCount(selectedIds.size)}
+              icon={<Key size={14} />}
+            >
+              Enviar código em massa ({selectedIds.size})
             </Button>
           )}
           {selectedActiveCount > 0 && (
@@ -712,11 +809,10 @@ export default function UsersPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => {
-                                setResetUser(u);
-                                setResetCode(null);
-                              }}
-                              title="Gerar código de acesso"
+                              onClick={() => handleSendResetEmail(u)}
+                              disabled={sendingResetId === u.id}
+                              loading={sendingResetId === u.id}
+                              title="Enviar código por e-mail"
                               className="hover:text-amber-700 hover:bg-amber-50"
                             >
                               <Key size={13} />
@@ -804,60 +900,16 @@ export default function UsersPage() {
         onCancel={() => setBulkReactivateTarget(null)}
       />
 
-      <Modal
-        open={!!resetUser}
-        onClose={() => {
-          setResetUser(null);
-          setResetCode(null);
-        }}
-        title="Código de acesso"
-        subtitle={resetUser?.email}
-        size="sm"
-        footer={
-          resetCode ? (
-            <Button
-              onClick={() => {
-                setResetUser(null);
-                setResetCode(null);
-              }}
-            >
-              Fechar
-            </Button>
-          ) : (
-            <>
-              <Button variant="outline" onClick={() => setResetUser(null)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleGenerateReset} loading={resetting}>
-                Gerar código
-              </Button>
-            </>
-          )
-        }
-      >
-        {resetCode ? (
-          <div className="text-center">
-            <p className="text-sm text-slate-600 mb-3">
-              Código gerado (válido por 30 minutos):
-            </p>
-            <div className="inline-block px-6 py-3 rounded-xl bg-brand-50 border border-brand-200">
-              <span className="text-2xl font-mono font-bold tracking-[0.3em] text-brand-800">
-                {resetCode}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-3">
-              Envie este código ao usuário para que ele possa definir sua senha.
-            </p>
-          </div>
-        ) : (
-          <p className="text-sm text-slate-600">
-            Gerar um código temporário para &quot;{resetUser?.nome}&quot;.
-            <br />
-            O usuário precisará informar este código ao fazer login para definir
-            uma nova senha.
-          </p>
-        )}
-      </Modal>
+      <ConfirmDialog
+        open={bulkResetTargetCount !== null}
+        title="Enviar código em massa"
+        message={`Será enviado um e-mail com código de redefinição de senha para ${bulkResetTargetCount} usuário(s) selecionado(s). Cada um receberá um código válido por 30 minutos. Continuar?`}
+        confirmLabel="Enviar e-mails"
+        variant="primary"
+        loading={bulkResetting}
+        onConfirm={handleBulkReset}
+        onCancel={() => setBulkResetTargetCount(null)}
+      />
     </div>
   );
 }

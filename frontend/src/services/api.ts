@@ -139,8 +139,25 @@ export const authApi = {
   /** Sair do modo "visualizar como" e voltar à conta do administrador mestre. */
   impersonateStop: () => post<{ user: AuthUser; tenant: Tenant }>("/auth/impersonate/stop"),
 
+  /** Admin: envia código de reset por e-mail ao usuário (nunca retorna o código). */
   generateReset: (email: string, tenantSlug?: string) =>
-    post<{ email: string; code: string; expiresAt: string }>("/auth/generate-reset", { email, tenantSlug }),
+    post<{
+      email: string;
+      expiresAt: string;
+      sentByEmail: boolean;
+      emailError?: string;
+    }>("/auth/generate-reset", { email, tenantSlug }),
+
+  /** Usuário na tela de login: solicita envio do código por e-mail (sem auth). */
+  requestReset: (email: string) =>
+    post<{ message: string }>("/auth/request-reset", { email }),
+
+  /** Admin mestre: envia código de reset por e-mail para vários usuários (máx. 50). */
+  generateResetBulk: (userIds: string[]) =>
+    post<{ sent: number; failed: number; results: { userId: string; email: string; sent: boolean; error?: string }[] }>(
+      "/auth/generate-reset-bulk",
+      { userIds }
+    ),
 };
 
 export const tasksApi = {
@@ -175,9 +192,12 @@ export const tasksApi = {
 export const usersApi = {
   list: () => get<{ users: User[] }>("/users"),
 
-  listAll: (tenantSlug?: string) => {
-    const qs = tenantSlug ? `?tenant=${encodeURIComponent(tenantSlug)}` : "";
-    return get<{ users: User[] }>(`/users/all${qs}`);
+  listAll: (tenantSlug?: string, withoutPassword?: boolean) => {
+    const params = new URLSearchParams();
+    if (tenantSlug) params.set("tenant", tenantSlug);
+    if (withoutPassword) params.set("withoutPassword", "1");
+    const qs = params.toString();
+    return get<{ users: User[] }>(`/users/all${qs ? `?${qs}` : ""}`);
   },
   create: (data: Partial<User> & { tenantSlug?: string }) =>
     post<{ user: User }>("/users", data),

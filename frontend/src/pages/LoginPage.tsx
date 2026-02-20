@@ -9,7 +9,7 @@ import { useBasePath } from "@/contexts/BasePathContext";
 import { authApi, tenantApi } from "@/services/api";
 import TenantLogo from "@/components/ui/TenantLogo";
 
-type Mode = "login" | "reset";
+type Mode = "login" | "requestReset" | "reset";
 
 export default function LoginPage() {
   const { user, loading, login, refreshSession, tenant } = useAuth();
@@ -27,6 +27,7 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [resetInfo, setResetInfo] = useState<{ firstAccess: boolean } | null>(null);
+  const [resetEmailSent, setResetEmailSent] = useState(false);
 
   if (!loading && user) return <Navigate to={`${basePath}/calendar`} replace />;
 
@@ -68,6 +69,26 @@ export default function LoginPage() {
     }
   };
 
+  const handleRequestReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = form.email?.trim();
+    if (!email) {
+      toast("Informe o e-mail", "warning");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const data = await authApi.requestReset(email);
+      toast(data?.message ?? "Se o e-mail estiver cadastrado e ativo, você receberá o código em instantes. Verifique sua caixa de entrada.", "success");
+      setResetEmailSent(true);
+      setMode("reset");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao solicitar código", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.email || !form.code || !form.newPassword) {
@@ -92,6 +113,7 @@ export default function LoginPage() {
   };
 
   const isAdminLogin = isSystemContext;
+  const showRequestResetForm = mode === "requestReset" && !isAdminLogin;
   const showResetForm = mode === "reset" && !isAdminLogin;
 
   return (
@@ -116,7 +138,7 @@ export default function LoginPage() {
         )}
 
         <div className={`bg-white border border-slate-200 rounded-2xl p-6 shadow-xl shadow-brand-100/60 ${isAdminLogin ? "mt-8" : ""}`}>
-          {!showResetForm ? (
+          {mode === "login" ? (
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="mb-2">
                 <h2 className="text-lg font-semibold text-slate-900">
@@ -172,13 +194,46 @@ export default function LoginPage() {
                   Esqueceu a senha?{" "}
                   <button
                     type="button"
-                    onClick={() => setMode("reset")}
+                    onClick={() => { setMode("requestReset"); setResetEmailSent(false); }}
                     className="text-brand-700 hover:text-brand-800 transition-colors"
                   >
                     Redefinir acesso
                   </button>
                 </p>
               )}
+            </form>
+          ) : showRequestResetForm ? (
+            <form onSubmit={handleRequestReset} className="space-y-4">
+              <div className="mb-2">
+                <h2 className="text-lg font-semibold text-slate-900">Redefinir acesso</h2>
+                <p className="text-sm text-slate-500">
+                  Informe o e-mail da conta. Enviaremos um código de verificação (válido por 30 minutos).
+                </p>
+              </div>
+
+              <Input
+                label="E-mail"
+                type="email"
+                required
+                value={form.email}
+                onChange={e => set("email", e.target.value)}
+                placeholder="email@empresa.com"
+                autoComplete="email"
+                autoFocus
+              />
+
+              <Button type="submit" className="w-full" size="lg" loading={submitting}>
+                Enviar código por e-mail
+              </Button>
+
+              <button
+                type="button"
+                onClick={() => setMode("login")}
+                className="w-full flex items-center justify-center gap-2 py-2.5 text-sm text-slate-600 hover:text-brand-700 hover:bg-slate-50 rounded-lg transition-colors border border-transparent hover:border-slate-200"
+              >
+                <ArrowLeft size={16} />
+                Voltar
+              </button>
             </form>
           ) : (
             <form onSubmit={handleReset} className="space-y-4">
@@ -198,6 +253,8 @@ export default function LoginPage() {
                 value={form.email}
                 onChange={e => set("email", e.target.value)}
                 placeholder="email@empresa.com"
+                readOnly={resetEmailSent}
+                className={resetEmailSent ? "bg-slate-50" : undefined}
               />
 
               <Input
@@ -226,7 +283,7 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                onClick={() => setMode("login")}
+                onClick={() => { setMode("login"); setResetEmailSent(false); }}
                 className="w-full flex items-center justify-center gap-2 py-2.5 text-sm text-slate-600 hover:text-brand-700 hover:bg-slate-50 rounded-lg transition-colors border border-transparent hover:border-slate-200"
               >
                 <ArrowLeft size={16} />

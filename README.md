@@ -102,6 +102,8 @@ Acesso: `http://localhost:5173?tenant=demo` (ou o slug do tenant configurado).
 | `SYSTEM_ADMIN_EMAIL`     | Email do administrador do sistema (criado na 1ª execução) | `admin@sistema.com` |
 | `SYSTEM_ADMIN_PASSWORD`  | Senha do administrador do sistema (mín. 6 caracteres)    | senha segura        |
 | `SYSTEM_ADMIN_NOME`      | Nome do administrador do sistema (opcional)        | `Admin Sistema`            |
+| `RESEND_API_KEY`         | Chave da API Resend (envio de e-mail do código de reset) | `re_xxxx...` (em [resend.com](https://resend.com/api-keys)) |
+| `EMAIL_FROM`             | Remetente dos e-mails (domínio verificado no Resend)     | `Task Manager <noreply@seudominio.com>` ou `onboarding@resend.dev` (testes) |
 
 ---
 

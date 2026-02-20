@@ -117,6 +117,7 @@ app.use("/api", verifyCsrf);
 // ── API Routes ────────────────────────────────────────────────────────────────
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth/reset", resetLimiter);
+app.use("/api/auth/request-reset", resetLimiter);
 app.use("/api", apiLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/tasks", taskRoutes);
