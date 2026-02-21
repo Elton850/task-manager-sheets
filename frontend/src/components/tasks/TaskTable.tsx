@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Edit2, Trash2, Copy, ChevronUp, ChevronDown, Paperclip, CheckCircle, Info } from "lucide-react";
+import { Edit2, Trash2, Copy, ChevronUp, ChevronDown, Paperclip, CheckCircle, Info, Layers } from "lucide-react";
 import Badge, { getStatusVariant } from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
@@ -137,13 +137,37 @@ function TaskTableInner({ tasks, loading, onEdit, onDelete, onDuplicate, onMarkC
                     <p className="text-sm font-medium text-slate-800 truncate flex-1 min-w-0 leading-snug" title={task.atividade}>
                       {task.atividade}
                     </p>
-                    {!!task.evidences?.length && (
-                      <span className="shrink-0 inline-flex items-center gap-1 text-xs text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2 py-0.5 font-medium" title={`${task.evidences.length} anexo(s)`}>
-                        <Paperclip size={12} strokeWidth={2} />
-                        {task.evidences.length}
-                      </span>
-                    )}
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      {!task.parentTaskId && (task.subtaskCount ?? 0) > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1 text-xs text-brand-700 bg-brand-50 border border-brand-200 rounded-md px-1.5 py-0.5 font-medium"
+                          title={`${task.subtaskCount} subtarefa(s) vinculada(s)`}
+                        >
+                          <Layers size={12} />
+                          {task.subtaskCount}
+                        </span>
+                      )}
+                      {task.parentTaskId && (
+                        <span
+                          className="inline-flex items-center gap-1 text-xs text-slate-600 bg-slate-100 border border-slate-200 rounded-md px-1.5 py-0.5 font-medium"
+                          title={task.parentTaskAtividade ? `Subtask da tarefa: ${task.parentTaskAtividade}` : "Subtask"}
+                        >
+                          Subtask
+                        </span>
+                      )}
+                      {!!task.evidences?.length && (
+                        <span className="inline-flex items-center gap-1 text-xs text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2 py-0.5 font-medium" title={`${task.evidences.length} anexo(s)`}>
+                          <Paperclip size={12} strokeWidth={2} />
+                          {task.evidences.length}
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  {task.parentTaskAtividade && (
+                    <p className="text-xs text-slate-500 truncate" title={`Tarefa principal: ${task.parentTaskAtividade}`}>
+                      <span className="text-slate-400">↳ da tarefa:</span> {task.parentTaskAtividade}
+                    </p>
+                  )}
                   {task.observacoes && (
                     <p className="text-xs text-slate-500 truncate leading-relaxed" title={task.observacoes}>
                       <span className="text-slate-400 font-medium">Obs.:</span> {task.observacoes}

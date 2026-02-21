@@ -286,6 +286,7 @@ export default function TasksPage() {
           setTasks(prev => prev.map(t => (t.id === updatedTask.id ? updatedTask : t)));
           setEditTask(prev => (prev && prev.id === updatedTask.id ? updatedTask : prev));
         }}
+        onEditSubtask={subtask => setEditTask(subtask)}
         loading={saving}
       />
 

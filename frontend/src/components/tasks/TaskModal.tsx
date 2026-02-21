@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Paperclip, Upload, Trash2, ExternalLink, Download, FileText } from "lucide-react";
+import { Paperclip, Upload, Trash2, ExternalLink, Download, FileText, Plus, Edit2, Layers } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -23,6 +23,8 @@ interface TaskModalProps {
   onClose: () => void;
   onSave: (data: Partial<Task>) => Promise<Task | void>;
   onTaskChange?: (task: Task) => void;
+  /** Ao editar uma subtask, o parent pode trocar a tarefa em edição para a subtask */
+  onEditSubtask?: (task: Task) => void;
   loading?: boolean;
 }
 
@@ -58,6 +60,7 @@ export default function TaskModal({
   onClose,
   onSave,
   onTaskChange,
+  onEditSubtask,
   loading,
 }: TaskModalProps) {
   const { user, tenant } = useAuth();
@@ -65,6 +68,11 @@ export default function TaskModal({
   const isEdit = !!task;
   const isUserOnlyObservacoes = user?.role === "USER" && isEdit;
   const taskConcluida = task?.status === "Concluído" || task?.status === "Concluído em Atraso";
+  const isMainTask = isEdit && task && !task.parentTaskId;
+  const canViewSubtasks = isMainTask && (user?.role === "LEADER" || user?.role === "ADMIN" || (user?.role === "USER" && task?.responsavelEmail === user?.email));
+  const canEditSubtasks = isMainTask && (user?.role === "LEADER" || user?.role === "ADMIN");
+  const isSubtask = isEdit && !!task?.parentTaskId;
+  const isReadOnlyTask = isEdit && !!task && user?.role === "USER" && task.responsavelEmail !== user?.email;
   const evidenceInputRef = useRef<HTMLInputElement | null>(null);
 
   const [form, setForm] = useState({
@@ -84,6 +92,15 @@ export default function TaskModal({
   const [deleteEvidenceTarget, setDeleteEvidenceTarget] = useState<TaskEvidence | null>(null);
   const [deletingEvidence, setDeletingEvidence] = useState(false);
   const [pendingCompletePayload, setPendingCompletePayload] = useState<Partial<Task> | null>(null);
+  const [subtasks, setSubtasks] = useState<Task[]>([]);
+  const [loadingSubtasks, setLoadingSubtasks] = useState(false);
+  const [showAddSubtask, setShowAddSubtask] = useState(false);
+  const [addSubtaskForm, setAddSubtaskForm] = useState({ atividade: "", responsavelEmail: "" });
+  const [addingSubtask, setAddingSubtask] = useState(false);
+  const [deleteSubtaskTarget, setDeleteSubtaskTarget] = useState<Task | null>(null);
+  const [deletingSubtask, setDeletingSubtask] = useState(false);
+
+  const hasPendingSubtasks = subtasks.length > 0 && subtasks.some(s => s.status !== "Concluído" && s.status !== "Concluído em Atraso");
 
   useEffect(() => {
     if (!open) setPendingCompletePayload(null);
@@ -120,6 +137,22 @@ export default function TaskModal({
     loadEvidences();
   }, [open, task?.id]);
 
+  useEffect(() => {
+    const loadSubtasks = async () => {
+      if (!open || !task?.id || task.parentTaskId || !canViewSubtasks) return;
+      setLoadingSubtasks(true);
+      try {
+        const { tasks: list } = await tasksApi.listSubtasks(task.id);
+        setSubtasks(list);
+      } catch {
+        setSubtasks([]);
+      } finally {
+        setLoadingSubtasks(false);
+      }
+    };
+    loadSubtasks();
+  }, [open, task?.id, task?.parentTaskId, canViewSubtasks]);
+
   const set = (field: string, value: string) => {
     setForm(f => ({ ...f, [field]: value }));
     if (errors[field]) setErrors(e => ({ ...e, [field]: "" }));
@@ -155,6 +188,10 @@ export default function TaskModal({
         };
 
     const vaiConcluir = isEdit && !taskConcluida && !isUserOnlyObservacoes && !!String(payload.realizado ?? "").trim();
+    if (vaiConcluir && hasPendingSubtasks) {
+      toast("Conclua todas as subtarefas antes de concluir a tarefa principal.", "warning");
+      return;
+    }
     if (vaiConcluir) {
       setPendingCompletePayload(payload);
       return;
@@ -230,6 +267,50 @@ export default function TaskModal({
     }
   };
 
+  const handleAddSubtask = async () => {
+    if (!task?.id || !addSubtaskForm.atividade.trim() || !addSubtaskForm.responsavelEmail) {
+      toast("Preencha a atividade e o responsável da subtarefa.", "warning");
+      return;
+    }
+    setAddingSubtask(true);
+    try {
+      const created = await tasksApi.create({
+        parentTaskId: task.id,
+        atividade: addSubtaskForm.atividade.trim(),
+        responsavelEmail: addSubtaskForm.responsavelEmail,
+        prazo: task.prazo || undefined,
+        competenciaYm: task.competenciaYm,
+        recorrencia: task.recorrencia,
+        tipo: task.tipo,
+        area: task.area,
+      });
+      setSubtasks(prev => [created.task, ...prev]);
+      setAddSubtaskForm({ atividade: "", responsavelEmail: "" });
+      setShowAddSubtask(false);
+      onTaskChange?.(created.task);
+      toast("Subtask adicionada.", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao adicionar subtask", "error");
+    } finally {
+      setAddingSubtask(false);
+    }
+  };
+
+  const handleDeleteSubtask = async () => {
+    if (!deleteSubtaskTarget) return;
+    setDeletingSubtask(true);
+    try {
+      await tasksApi.delete(deleteSubtaskTarget.id);
+      setSubtasks(prev => prev.filter(t => t.id !== deleteSubtaskTarget.id));
+      setDeleteSubtaskTarget(null);
+      toast("Subtask removida.", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao remover subtask", "error");
+    } finally {
+      setDeletingSubtask(false);
+    }
+  };
+
   const selectableUsers = user?.role === "LEADER" ? users.filter(u => u.area === user.area) : users;
 
   const allRecorrencias = lookups.RECORRENCIA || [];
@@ -262,18 +343,25 @@ export default function TaskModal({
             </div>
           )}
           <Button variant="outline" onClick={onClose} disabled={loading}>
-            Cancelar
+            {isReadOnlyTask ? "Fechar" : "Cancelar"}
           </Button>
-          <Button onClick={handleSubmit} loading={loading}>
-            {isEdit ? "Salvar alterações" : "Criar tarefa"}
-          </Button>
+          {!isReadOnlyTask && (
+            <Button onClick={handleSubmit} loading={loading}>
+              {isEdit ? "Salvar alterações" : "Criar tarefa"}
+            </Button>
+          )}
         </>
       }
     >
       <div className="space-y-5">
-        {isUserOnlyObservacoes && (
+        {isUserOnlyObservacoes && !isReadOnlyTask && (
           <p className="text-sm text-slate-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2">
             Como usuário, você só pode editar as <strong>Observações</strong> desta tarefa. Para marcar como concluída, use o ícone ✓ na lista.
+          </p>
+        )}
+        {isReadOnlyTask && (
+          <p className="text-sm text-slate-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2">
+            <strong>Somente leitura.</strong> Esta tarefa é de outro responsável; você pode apenas visualizar.
           </p>
         )}
 
@@ -285,7 +373,7 @@ export default function TaskModal({
             onChange={e => set("competenciaYm", e.target.value)}
             options={ymOptions}
             error={errors.competenciaYm}
-            disabled={isUserOnlyObservacoes}
+            disabled={isUserOnlyObservacoes || isReadOnlyTask}
           />
 
           <Select
@@ -296,7 +384,7 @@ export default function TaskModal({
             options={recorrenciaOptions}
             placeholder="Selecione..."
             error={errors.recorrencia}
-            disabled={isUserOnlyObservacoes}
+            disabled={isUserOnlyObservacoes || isReadOnlyTask}
           />
 
           <Select
@@ -307,7 +395,7 @@ export default function TaskModal({
             options={tipoOptions}
             placeholder="Selecione..."
             error={errors.tipo}
-            disabled={isUserOnlyObservacoes}
+            disabled={isUserOnlyObservacoes || isReadOnlyTask}
           />
 
           {user?.role !== "USER" ? (
@@ -338,19 +426,32 @@ export default function TaskModal({
           placeholder="Descreva a atividade..."
           rows={3}
           error={errors.atividade}
-          hint={!isUserOnlyObservacoes ? `${form.atividade.length}/200 caracteres` : undefined}
-          disabled={isUserOnlyObservacoes}
+          hint={!isUserOnlyObservacoes && !isReadOnlyTask ? `${form.atividade.length}/200 caracteres` : undefined}
+          disabled={isUserOnlyObservacoes || isReadOnlyTask}
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input label="Prazo" type="date" value={form.prazo} onChange={e => set("prazo", e.target.value)} disabled={isUserOnlyObservacoes} />
+          <Input
+            label="Prazo"
+            type="date"
+            value={form.prazo}
+            onChange={e => set("prazo", e.target.value)}
+            disabled={isUserOnlyObservacoes || isReadOnlyTask || isSubtask}
+            hint={isSubtask ? "O prazo é o mesmo da tarefa principal." : undefined}
+          />
           <Input
             label="Data realizado"
             type="date"
             value={form.realizado}
             onChange={e => set("realizado", e.target.value)}
-            hint={form.realizado && !isUserOnlyObservacoes ? "Status será recalculado automaticamente" : undefined}
-            disabled={isUserOnlyObservacoes}
+            hint={
+              hasPendingSubtasks
+                ? "Conclua todas as subtarefas antes de concluir a tarefa principal."
+                : form.realizado && !isUserOnlyObservacoes
+                  ? "Status será recalculado automaticamente"
+                  : undefined
+            }
+            disabled={isUserOnlyObservacoes || isReadOnlyTask || (isMainTask && hasPendingSubtasks)}
           />
         </div>
 
@@ -362,6 +463,7 @@ export default function TaskModal({
           rows={2}
           error={errors.observacoes}
           hint={form.observacoes ? `${form.observacoes.length}/1000 caracteres` : undefined}
+          disabled={isReadOnlyTask}
         />
 
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
@@ -472,6 +574,109 @@ export default function TaskModal({
           )}
         </div>
 
+        {canViewSubtasks && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <Layers size={16} />
+                Subtarefas
+              </div>
+              {canEditSubtasks && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  icon={<Plus size={14} />}
+                  onClick={() => { setShowAddSubtask(true); setAddSubtaskForm({ atividade: "", responsavelEmail: "" }); }}
+                >
+                  Adicionar subtarefa
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-slate-500">
+              {canEditSubtasks
+                ? "A tarefa principal só será concluída quando você e todos os envolvidos concluírem suas partes. O prazo das subtarefas é o mesmo da tarefa."
+                : "Subtarefas vinculadas a esta tarefa. O prazo é o mesmo da tarefa principal."}
+            </p>
+            {canEditSubtasks && showAddSubtask && (
+              <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
+                <Input
+                  label="Atividade da subtarefa"
+                  value={addSubtaskForm.atividade}
+                  onChange={e => setAddSubtaskForm(f => ({ ...f, atividade: e.target.value }))}
+                  placeholder="Descreva o que o envolvido deve fazer..."
+                  maxLength={200}
+                />
+                <Select
+                  label="Envolvido"
+                  required
+                  value={addSubtaskForm.responsavelEmail}
+                  onChange={e => setAddSubtaskForm(f => ({ ...f, responsavelEmail: e.target.value }))}
+                  options={users.filter(u => u.area === task?.area).map(u => ({ value: u.email, label: `${u.nome} (${u.email})` }))}
+                  placeholder="Selecione..."
+                />
+                <p className="text-xs text-slate-500">O prazo será o mesmo da tarefa principal.</p>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => { setShowAddSubtask(false); setAddSubtaskForm({ atividade: "", responsavelEmail: "" }); }}>
+                    Cancelar
+                  </Button>
+                  <Button type="button" size="sm" onClick={handleAddSubtask} loading={addingSubtask}>
+                    Adicionar
+                  </Button>
+                </div>
+              </div>
+            )}
+            {loadingSubtasks ? (
+              <p className="text-xs text-slate-500">Carregando subtarefas...</p>
+            ) : subtasks.length === 0 ? (
+              <p className="text-xs text-slate-500">{canEditSubtasks ? "Nenhuma subtarefa. Adicione para distribuir partes desta tarefa." : "Nenhuma subtarefa vinculada."}</p>
+            ) : (
+              <div className="space-y-2">
+                {subtasks.map(st => (
+                  <div
+                    key={st.id}
+                    className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-800 truncate">{st.atividade}</p>
+                      <p className="text-xs text-slate-500">
+                        {st.responsavelNome}
+                        {st.prazo && ` · Prazo: ${new Date(st.prazo + "T00:00:00").toLocaleDateString("pt-BR")}`}
+                      </p>
+                    </div>
+                    <Badge variant={getStatusVariant(st.status)} size="sm">{st.status}</Badge>
+                    <div className="flex items-center gap-0.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-label={canEditSubtasks ? `Editar subtarefa: ${st.atividade}` : `Abrir subtarefa: ${st.atividade}`}
+                        title={canEditSubtasks ? "Editar" : "Abrir"}
+                        onClick={() => onEditSubtask?.(st)}
+                      >
+                        <Edit2 size={14} />
+                      </Button>
+                      {canEditSubtasks && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Excluir subtarefa: ${st.atividade}`}
+                          title="Excluir"
+                          onClick={() => setDeleteSubtaskTarget(st)}
+                          className="hover:text-rose-600 hover:bg-rose-50"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {isEdit && task && (
           <div className="pt-2 border-t border-slate-200">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-500">
@@ -516,6 +721,17 @@ export default function TaskModal({
         loading={loading}
         onConfirm={handleConfirmComplete}
         onCancel={() => setPendingCompletePayload(null)}
+      />
+
+      <ConfirmDialog
+        open={!!deleteSubtaskTarget}
+        title="Excluir subtarefa"
+        message={deleteSubtaskTarget ? `Deseja excluir a subtarefa "${deleteSubtaskTarget.atividade}"? Esta ação não pode ser desfeita.` : ""}
+        confirmLabel="Excluir"
+        variant="danger"
+        loading={deletingSubtask}
+        onConfirm={handleDeleteSubtask}
+        onCancel={() => setDeleteSubtaskTarget(null)}
       />
     </Modal>
   );

@@ -33,6 +33,7 @@ const STATUS_OPTIONS = [
   { value: "Concluído", label: "Concluído" },
   { value: "Em Atraso", label: "Em Atraso" },
   { value: "Concluído em Atraso", label: "Concluído em Atraso" },
+  { value: "Aguardando subtarefas", label: "Aguardando subtarefas" },
 ];
 
 export default function TaskFilters({ filters, lookups, users, onChange, onClear, totalCount, filteredCount }: TaskFiltersProps) {

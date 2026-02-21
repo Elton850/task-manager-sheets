@@ -177,5 +177,16 @@ try {
   // ignorar
 }
 
+// Migração: subtarefas (tarefa filha vinculada à tarefa principal)
+try {
+  const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+  if (!taskCols.some((c) => c.name === "parent_task_id")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id)");
+  }
+} catch {
+  // ignorar
+}
+
 export default db;
 export { SYSTEM_TENANT_ID };

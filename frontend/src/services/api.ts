@@ -187,6 +187,7 @@ export const tasksApi = {
 
   duplicate: (id: string) => post<{ task: Task }>(`/tasks/${id}/duplicate`),
 
+  listSubtasks: (id: string) => get<{ tasks: Task[] }>(`/tasks/${id}/subtasks`),
   listEvidences: (id: string) => get<{ evidences: TaskEvidence[] }>(`/tasks/${id}/evidences`),
 
   uploadEvidence: (id: string, file: { fileName: string; mimeType: string; contentBase64: string }) =>

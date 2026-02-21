@@ -31,6 +31,7 @@ interface TaskDbRow {
   deleted_by: string | null;
   prazo_modified_by?: string | null;
   realizado_por?: string | null;
+  parent_task_id?: string | null;
 }
 
 interface EvidenceDbRow {
@@ -72,7 +73,8 @@ function getNamesForEmails(tenantId: string, emails: string[]): Record<string, s
 function rowToTask(
   row: TaskDbRow,
   evidences: EvidenceDbRow[] = [],
-  emailToName?: Record<string, string>
+  emailToName?: Record<string, string>,
+  overrides?: { status?: string; parentTaskAtividade?: string; subtaskCount?: number }
 ) {
   const prazoModifiedBy = row.prazo_modified_by ?? null;
   const realizadoPor = row.realizado_por ?? null;
@@ -88,7 +90,7 @@ function rowToTask(
     area: row.area,
     prazo: row.prazo || "",
     realizado: row.realizado || "",
-    status: row.status,
+    status: overrides?.status ?? row.status,
     observacoes: row.observacoes || "",
     createdAt: row.created_at,
     createdBy: row.created_by,
@@ -98,6 +100,9 @@ function rowToTask(
     prazoModifiedByName: (prazoModifiedBy && emailToName?.[prazoModifiedBy]) || undefined,
     realizadoPor: realizadoPor || undefined,
     realizadoPorNome: (realizadoPor && emailToName?.[realizadoPor]) || undefined,
+    parentTaskId: row.parent_task_id ?? undefined,
+    parentTaskAtividade: overrides?.parentTaskAtividade ?? undefined,
+    subtaskCount: overrides?.subtaskCount ?? 0,
     evidences: evidences.map(e => toEvidence(e, row.id)),
   };
 }
@@ -106,10 +111,22 @@ function canReadTask(user: Request["user"], task: TaskDbRow): boolean {
   if (!user) return false;
   if (user.role === "ADMIN") return true;
   if (user.role === "LEADER") return task.area === user.area;
-  return task.responsavel_email === user.email;
+  if (task.responsavel_email === user.email) return true;
+  if (task.parent_task_id) {
+    const parent = db.prepare("SELECT responsavel_email FROM tasks WHERE id = ? AND tenant_id = ?")
+      .get(task.parent_task_id, user.tenantId) as { responsavel_email: string } | undefined;
+    if (parent && parent.responsavel_email === user.email) return true;
+  }
+  return false;
 }
 
 function canManageTask(user: Request["user"], task: TaskDbRow): boolean {
+  if (!user) return false;
+  if (task.parent_task_id) {
+    const parent = db.prepare("SELECT responsavel_email FROM tasks WHERE id = ? AND tenant_id = ?")
+      .get(task.parent_task_id, user.tenantId) as { responsavel_email: string } | undefined;
+    if (parent && parent.responsavel_email === user.email) return false;
+  }
   return canReadTask(user, task);
 }
 
@@ -118,12 +135,12 @@ function buildWhereClause(user: Request["user"]): { where: string; params: Array
   const params: Array<string | number | null> = [user!.tenantId];
 
   if (user!.role === "ADMIN") {
-    return { where: baseWhere, params };
+    return { where: `${baseWhere} AND parent_task_id IS NULL`, params };
   }
   if (user!.role === "LEADER") {
-    return { where: `${baseWhere} AND area = ?`, params: [...params, user!.area] };
+    return { where: `${baseWhere} AND area = ? AND parent_task_id IS NULL`, params: [...params, user!.area] };
   }
-  // USER: only own tasks
+  // USER: main tasks where responsável = me OU subtasks onde responsável = me (envolvido)
   return { where: `${baseWhere} AND responsavel_email = ?`, params: [...params, user!.email] };
 }
 
@@ -187,7 +204,53 @@ router.get("/", (req: Request, res: Response): void => {
     }
     const emailToName = getNamesForEmails(req.user!.tenantId, auditEmails);
 
-    res.json({ tasks: rows.map(row => rowToTask(row, evidencesByTask.get(row.id) || [], emailToName)) });
+    const mainIds = rows.filter(r => !r.parent_task_id).map(r => r.id);
+    let subtasksByParentId = new Map<string, TaskDbRow[]>();
+    if (mainIds.length > 0) {
+      const placeholders = mainIds.map(() => "?").join(",");
+      const subtaskRows = db.prepare(`
+        SELECT * FROM tasks WHERE parent_task_id IN (${placeholders}) AND deleted_at IS NULL
+      `).all(...mainIds) as TaskDbRow[];
+      for (const st of subtaskRows) {
+        const pid = st.parent_task_id!;
+        const list = subtasksByParentId.get(pid) || [];
+        list.push(st);
+        subtasksByParentId.set(pid, list);
+      }
+    }
+    const parentAtividadeById: Record<string, string> = {};
+    for (const r of rows) {
+      if (!r.parent_task_id) parentAtividadeById[r.id] = r.atividade;
+    }
+    for (const r of rows) {
+      if (r.parent_task_id && !parentAtividadeById[r.parent_task_id]) {
+        const parent = db.prepare("SELECT atividade FROM tasks WHERE id = ? AND tenant_id = ?")
+          .get(r.parent_task_id, req.user!.tenantId) as { atividade: string } | undefined;
+        if (parent) parentAtividadeById[r.parent_task_id] = parent.atividade;
+      }
+    }
+    function getEffectiveStatus(main: TaskDbRow): string {
+      const subs = subtasksByParentId.get(main.id);
+      if (!subs || subs.length === 0) return main.status;
+      const allSubsDone = subs.every(s => !!s.realizado?.trim());
+      if (!main.realizado?.trim()) return main.status;
+      if (!allSubsDone) return "Aguardando subtarefas";
+      return calcStatus(main.prazo, main.realizado);
+    }
+    const taskList = rows.map(row => {
+      const evidences = evidencesByTask.get(row.id) || [];
+      const overrides: { status?: string; parentTaskAtividade?: string; subtaskCount?: number } = {};
+      if (row.parent_task_id && parentAtividadeById[row.parent_task_id]) {
+        overrides.parentTaskAtividade = parentAtividadeById[row.parent_task_id];
+      }
+      if (!row.parent_task_id) {
+        const subs = subtasksByParentId.get(row.id);
+        if (subs?.length) overrides.status = getEffectiveStatus(row);
+        overrides.subtaskCount = subs?.length ?? 0;
+      }
+      return rowToTask(row, evidences, emailToName, overrides);
+    });
+    res.json({ tasks: taskList });
   } catch {
     res.status(500).json({ error: "Erro ao buscar tarefas.", code: "INTERNAL" });
   }
@@ -199,6 +262,7 @@ router.post("/", (req: Request, res: Response): void => {
     const user = req.user!;
     const tenantId = req.tenantId!;
     const body = req.body;
+    const parentTaskId = optStr(body.parentTaskId) || null;
 
     const atividade = mustString(body.atividade, "Atividade");
     if (atividade.length > 200) {
@@ -206,58 +270,100 @@ router.post("/", (req: Request, res: Response): void => {
       return;
     }
 
-    // Determine the responsible user
     let responsavelEmail: string;
     let responsavelNome: string;
     let area: string;
+    let competenciaYm: string;
+    let recorrencia: string;
+    let tipo: string;
+    let parent: TaskDbRow | undefined;
 
-    if (user.role === "ADMIN" || user.role === "LEADER") {
+    if (parentTaskId) {
+      if (user.role !== "ADMIN" && user.role !== "LEADER") {
+        res.status(403).json({ error: "Apenas líder ou administrador pode criar subtarefas.", code: "FORBIDDEN" });
+        return;
+      }
+      parent = db.prepare("SELECT * FROM tasks WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL")
+        .get(parentTaskId, tenantId) as TaskDbRow | undefined;
+      if (!parent) {
+        res.status(404).json({ error: "Tarefa principal não encontrada.", code: "NOT_FOUND" });
+        return;
+      }
+      if (parent.parent_task_id) {
+        res.status(400).json({ error: "Não é possível criar subtarefa de outra subtarefa.", code: "VALIDATION" });
+        return;
+      }
+      if (user.role === "LEADER" && parent.area !== user.area) {
+        res.status(403).json({ error: "Sem permissão para criar subtarefa nesta tarefa.", code: "FORBIDDEN" });
+        return;
+      }
+      competenciaYm = parent.competencia_ym;
+      recorrencia = parent.recorrencia;
+      tipo = parent.tipo;
+      area = parent.area;
       responsavelEmail = mustString(body.responsavelEmail, "Responsável");
-      // Get user info
       const respUser = db.prepare("SELECT nome, area FROM users WHERE tenant_id = ? AND email = ?")
         .get(tenantId, responsavelEmail) as { nome: string; area: string } | undefined;
-
       if (!respUser) {
         res.status(400).json({ error: "Responsável não encontrado.", code: "USER_NOT_FOUND" });
         return;
       }
-
-      // LEADER can only assign to users in their area
       if (user.role === "LEADER" && respUser.area !== user.area) {
-        res.status(403).json({ error: "LEADER só pode atribuir tarefas da sua área.", code: "FORBIDDEN" });
+        res.status(403).json({ error: "LEADER só pode atribuir subtarefas a usuários da sua área.", code: "FORBIDDEN" });
         return;
       }
-
       responsavelNome = respUser.nome;
-      area = respUser.area;
     } else {
-      // USER creates tasks for themselves
-      responsavelEmail = user.email;
-      responsavelNome = user.nome;
-      area = user.area;
-
-      // Validate recorrencia against rules
-      const recorrencia = mustString(body.recorrencia, "Recorrência");
-      const rule = db.prepare("SELECT allowed_recorrencias FROM rules WHERE tenant_id = ? AND area = ?")
-        .get(tenantId, area) as { allowed_recorrencias: string } | undefined;
-
-      if (!rule) {
-        res.status(400).json({ error: "Nenhuma regra configurada para sua área. Contate o ADMIN.", code: "NO_RULE" });
-        return;
-      }
-
-      const allowed: string[] = JSON.parse(rule.allowed_recorrencias || "[]");
-      if (!allowed.includes(recorrencia)) {
-        res.status(400).json({
-          error: `Recorrência "${recorrencia}" não permitida para sua área. Permitidas: ${allowed.join(", ")}`,
-          code: "RECORRENCIA_NOT_ALLOWED",
-        });
-        return;
+      if (user.role === "ADMIN" || user.role === "LEADER") {
+        responsavelEmail = mustString(body.responsavelEmail, "Responsável");
+        const respUser = db.prepare("SELECT nome, area FROM users WHERE tenant_id = ? AND email = ?")
+          .get(tenantId, responsavelEmail) as { nome: string; area: string } | undefined;
+        if (!respUser) {
+          res.status(400).json({ error: "Responsável não encontrado.", code: "USER_NOT_FOUND" });
+          return;
+        }
+        if (user.role === "LEADER" && respUser.area !== user.area) {
+          res.status(403).json({ error: "LEADER só pode atribuir tarefas da sua área.", code: "FORBIDDEN" });
+          return;
+        }
+        responsavelNome = respUser.nome;
+        area = respUser.area;
+        competenciaYm = mustString(body.competenciaYm, "Competência");
+        recorrencia = mustString(body.recorrencia, "Recorrência");
+        tipo = mustString(body.tipo, "Tipo");
+      } else {
+        responsavelEmail = user.email;
+        responsavelNome = user.nome;
+        area = user.area;
+        competenciaYm = mustString(body.competenciaYm, "Competência");
+        recorrencia = mustString(body.recorrencia, "Recorrência");
+        tipo = mustString(body.tipo, "Tipo");
+        const rule = db.prepare("SELECT allowed_recorrencias FROM rules WHERE tenant_id = ? AND area = ?")
+          .get(tenantId, area) as { allowed_recorrencias: string } | undefined;
+        if (!rule) {
+          res.status(400).json({ error: "Nenhuma regra configurada para sua área. Contate o ADMIN.", code: "NO_RULE" });
+          return;
+        }
+        const allowed: string[] = JSON.parse(rule.allowed_recorrencias || "[]");
+        if (!allowed.includes(recorrencia)) {
+          res.status(400).json({
+            error: `Recorrência "${recorrencia}" não permitida para sua área. Permitidas: ${allowed.join(", ")}`,
+            code: "RECORRENCIA_NOT_ALLOWED",
+          });
+          return;
+        }
       }
     }
 
-    const prazo = optStr(body.prazo);
-    const realizado = optStr(body.realizado);
+    let prazo: string | null;
+    let realizado: string | null;
+    if (parentTaskId) {
+      prazo = parent!.prazo ?? null;
+      realizado = optStr(body.realizado) || null;
+    } else {
+      prazo = optStr(body.prazo) || null;
+      realizado = optStr(body.realizado) || null;
+    }
     const observacoes = optStr(body.observacoes);
 
     if (observacoes.length > 1000) {
@@ -273,19 +379,18 @@ router.post("/", (req: Request, res: Response): void => {
     db.prepare(`
       INSERT INTO tasks (id, tenant_id, competencia_ym, recorrencia, tipo, atividade,
         responsavel_email, responsavel_nome, area, prazo, realizado, status, observacoes,
-        created_at, created_by, updated_at, updated_by, prazo_modified_by, realizado_por)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, created_by, updated_at, updated_by, prazo_modified_by, realizado_por, parent_task_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, tenantId,
-      mustString(body.competenciaYm, "Competência"),
-      mustString(body.recorrencia, "Recorrência"),
-      mustString(body.tipo, "Tipo"),
+      competenciaYm, recorrencia, tipo,
       atividade,
       responsavelEmail, responsavelNome, area,
       prazo || null, realizado || null,
       status, observacoes || null,
       now, user.email, now, user.email,
-      null, realizadoPor
+      null, realizadoPor,
+      parentTaskId
     );
 
     const created = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as TaskDbRow;
@@ -334,11 +439,19 @@ router.put("/:id", (req: Request, res: Response): void => {
     let responsavelNome: string;
     let area: string;
 
+    if (task.parent_task_id) {
+      const parentTask = db.prepare("SELECT prazo FROM tasks WHERE id = ? AND tenant_id = ?")
+        .get(task.parent_task_id, tenantId) as { prazo: string | null } | undefined;
+      prazo = parentTask?.prazo ?? null;
+    } else {
+      prazo = null;
+    }
+
     // USER can only update observacoes and realizado (mark as complete)
     if (user.role === "USER") {
       observacoes = optStr(body.observacoes ?? task.observacoes);
       realizado = optStr(body.realizado ?? task.realizado) || null;
-      prazo = task.prazo || null;
+      if (!task.parent_task_id) prazo = task.prazo || null;
       atividade = task.atividade;
       competenciaYm = task.competencia_ym;
       recorrencia = task.recorrencia;
@@ -347,7 +460,7 @@ router.put("/:id", (req: Request, res: Response): void => {
       responsavelNome = task.responsavel_nome;
       area = task.area;
     } else {
-      prazo = optStr(body.prazo ?? task.prazo) || null;
+      if (!task.parent_task_id) prazo = optStr(body.prazo ?? task.prazo) || null;
       realizado = optStr(body.realizado ?? task.realizado) || null;
       atividade = optStr(body.atividade ?? task.atividade);
       observacoes = optStr(body.observacoes ?? task.observacoes) || null;
@@ -357,6 +470,19 @@ router.put("/:id", (req: Request, res: Response): void => {
       responsavelEmail = optStr(body.responsavelEmail ?? task.responsavel_email);
       responsavelNome = optStr(body.responsavelNome ?? task.responsavel_nome);
       area = optStr(body.area ?? task.area);
+    }
+
+    if (!task.parent_task_id && realizado?.trim()) {
+      const subs = db.prepare("SELECT id, realizado FROM tasks WHERE parent_task_id = ? AND tenant_id = ? AND deleted_at IS NULL")
+        .all(task.id, tenantId) as { id: string; realizado: string | null }[];
+      const pendente = subs.find(s => !s.realizado?.trim());
+      if (pendente) {
+        res.status(400).json({
+          error: "Conclua todas as subtarefas antes de concluir a tarefa principal.",
+          code: "SUBTASKS_PENDING",
+        });
+        return;
+      }
     }
 
     const status = calcStatus(prazo, realizado);
@@ -419,14 +545,70 @@ router.delete("/:id", (req: Request, res: Response): void => {
       return;
     }
 
+    const now = nowIso();
     db.prepare(`
       UPDATE tasks SET deleted_at = ?, deleted_by = ?
       WHERE id = ? AND tenant_id = ?
-    `).run(nowIso(), user.email, id, tenantId);
+    `).run(now, user.email, id, tenantId);
+    if (!task.parent_task_id) {
+      db.prepare(`
+        UPDATE tasks SET deleted_at = ?, deleted_by = ?
+        WHERE parent_task_id = ? AND tenant_id = ?
+      `).run(now, user.email, id, tenantId);
+    }
 
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "Erro ao excluir tarefa.", code: "INTERNAL" });
+  }
+});
+
+// GET /api/tasks/:id/subtasks
+router.get("/:id/subtasks", (req: Request, res: Response): void => {
+  try {
+    const user = req.user!;
+    const tenantId = req.tenantId!;
+    const { id: parentId } = req.params;
+
+    const parent = db.prepare("SELECT * FROM tasks WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL")
+      .get(parentId, tenantId) as TaskDbRow | undefined;
+    if (!parent) {
+      res.status(404).json({ error: "Tarefa não encontrada.", code: "NOT_FOUND" });
+      return;
+    }
+    if (!canReadTask(user, parent)) {
+      res.status(403).json({ error: "Sem permissão para ver subtarefas desta tarefa.", code: "FORBIDDEN" });
+      return;
+    }
+
+    const rows = db.prepare(`
+      SELECT * FROM tasks WHERE parent_task_id = ? AND tenant_id = ? AND deleted_at IS NULL
+      ORDER BY created_at ASC
+    `).all(parentId, tenantId) as TaskDbRow[];
+    const taskIds = rows.map(r => r.id);
+    const evidencesByTask = new Map<string, EvidenceDbRow[]>();
+    if (taskIds.length > 0) {
+      const placeholders = taskIds.map(() => "?").join(",");
+      const evidenceRows = db.prepare(`
+        SELECT * FROM task_evidences WHERE task_id IN (${placeholders}) ORDER BY uploaded_at DESC
+      `).all(...taskIds) as EvidenceDbRow[];
+      for (const e of evidenceRows) {
+        const list = evidencesByTask.get(e.task_id) || [];
+        list.push(e);
+        evidencesByTask.set(e.task_id, list);
+      }
+    }
+    const auditEmails: string[] = [];
+    for (const row of rows) {
+      if (row.prazo_modified_by) auditEmails.push(row.prazo_modified_by);
+      if (row.realizado_por) auditEmails.push(row.realizado_por);
+    }
+    const emailToName = getNamesForEmails(tenantId, auditEmails);
+    const parentAtividade = parent.atividade;
+    const tasks = rows.map(row => rowToTask(row, evidencesByTask.get(row.id) || [], emailToName, { parentTaskAtividade: parentAtividade }));
+    res.json({ tasks });
+  } catch {
+    res.status(500).json({ error: "Erro ao buscar subtarefas.", code: "INTERNAL" });
   }
 });
 
@@ -456,12 +638,13 @@ router.post("/:id/duplicate", (req: Request, res: Response): void => {
     db.prepare(`
       INSERT INTO tasks (id, tenant_id, competencia_ym, recorrencia, tipo, atividade,
         responsavel_email, responsavel_nome, area, prazo, realizado, status, observacoes,
-        created_at, created_by, updated_at, updated_by, prazo_modified_by, realizado_por)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'Em Andamento', ?, ?, ?, ?, ?, NULL, NULL)
+        created_at, created_by, updated_at, updated_by, prazo_modified_by, realizado_por, parent_task_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'Em Andamento', ?, ?, ?, ?, ?, NULL, NULL, ?)
     `).run(
       newId, tenantId, task.competencia_ym, task.recorrencia, task.tipo,
       task.atividade, task.responsavel_email, task.responsavel_nome, task.area,
-      task.prazo, task.observacoes, now, user.email, now, user.email
+      task.prazo, task.observacoes, now, user.email, now, user.email,
+      task.parent_task_id ?? null
     );
 
     const created = db.prepare("SELECT * FROM tasks WHERE id = ?").get(newId) as TaskDbRow;

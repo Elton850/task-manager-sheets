@@ -29,6 +29,8 @@ export function getStatusVariant(status: string): BadgeVariant {
       return "red";
     case "Concluído em Atraso":
       return "amber";
+    case "Aguardando subtarefas":
+      return "slate";
     default:
       return "slate";
   }

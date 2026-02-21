@@ -388,6 +388,7 @@ export default function CalendarPage() {
           }}
           onSave={handleSave}
           onTaskChange={upsertTask}
+          onEditSubtask={subtask => setEditTask(subtask)}
           loading={saving}
         />
       )}

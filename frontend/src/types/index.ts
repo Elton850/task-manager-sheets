@@ -73,6 +73,12 @@ export interface Task {
   realizadoPor?: string;
   /** Nome para exibição: concluído por. */
   realizadoPorNome?: string;
+  /** ID da tarefa principal quando esta tarefa é uma subtarefa. */
+  parentTaskId?: string;
+  /** Descrição da tarefa principal (para exibir "Subtask de: X"). */
+  parentTaskAtividade?: string;
+  /** Número de subtarefas (apenas em tarefas principais). */
+  subtaskCount?: number;
   evidences?: TaskEvidence[];
 }
 
@@ -158,6 +164,7 @@ export const STATUS_COLORS: Record<string, string> = {
   "Concluído": "green",
   "Em Atraso": "red",
   "Concluído em Atraso": "amber",
+  "Aguardando subtarefas": "slate",
 };
 
-export const STATUS_LIST = ["Em Andamento", "Concluído", "Em Atraso", "Concluído em Atraso"];
+export const STATUS_LIST = ["Em Andamento", "Concluído", "Em Atraso", "Concluído em Atraso", "Aguardando subtarefas"];
