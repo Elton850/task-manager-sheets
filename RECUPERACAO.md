@@ -1,5 +1,7 @@
 # Guia de recuperação — Task Manager 100% funcional
 
+**Repositório:** [github.com/Elton850/Task-Manager](https://github.com/Elton850/Task-Manager)
+
 Use este guia quando clonar o repositório ou precisar deixar o projeto funcionando do zero.
 
 ---

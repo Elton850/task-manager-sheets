@@ -36,13 +36,13 @@ export default function ConfirmDialog({
         </>
       }
     >
-      <div className="flex gap-3 items-start">
+      <div className="flex gap-3 items-start min-w-0">
         {variant === "danger" && (
           <div className="mt-0.5 flex-shrink-0 w-8 h-8 rounded-full bg-rose-500/15 flex items-center justify-center">
             <AlertTriangle size={16} className="text-rose-400" />
           </div>
         )}
-        <p className="text-sm text-slate-800">{message}</p>
+        <p className="text-sm text-slate-800 break-words min-w-0">{message}</p>
       </div>
     </Modal>
   );

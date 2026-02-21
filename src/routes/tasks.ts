@@ -32,6 +32,9 @@ interface TaskDbRow {
   prazo_modified_by?: string | null;
   realizado_por?: string | null;
   parent_task_id?: string | null;
+  justification_blocked?: number;
+  justification_blocked_at?: string | null;
+  justification_blocked_by?: string | null;
 }
 
 interface EvidenceDbRow {
@@ -70,11 +73,13 @@ function getNamesForEmails(tenantId: string, emails: string[]): Record<string, s
   return map;
 }
 
+type JustificationStatus = "none" | "pending" | "approved" | "refused" | "blocked";
+
 function rowToTask(
   row: TaskDbRow,
   evidences: EvidenceDbRow[] = [],
   emailToName?: Record<string, string>,
-  overrides?: { status?: string; parentTaskAtividade?: string; subtaskCount?: number }
+  overrides?: { status?: string; parentTaskAtividade?: string; subtaskCount?: number; justificationStatus?: JustificationStatus }
 ) {
   const prazoModifiedBy = row.prazo_modified_by ?? null;
   const realizadoPor = row.realizado_por ?? null;
@@ -103,6 +108,7 @@ function rowToTask(
     parentTaskId: row.parent_task_id ?? undefined,
     parentTaskAtividade: overrides?.parentTaskAtividade ?? undefined,
     subtaskCount: overrides?.subtaskCount ?? 0,
+    justificationStatus: overrides?.justificationStatus ?? undefined,
     evidences: evidences.map(e => toEvidence(e, row.id)),
   };
 }
@@ -237,16 +243,46 @@ router.get("/", (req: Request, res: Response): void => {
       if (!allSubsDone) return "Aguardando subtarefas";
       return calcStatus(main.prazo, main.realizado);
     }
+    const lateTaskIds = rows.filter(row => {
+      const eff = !row.parent_task_id && subtasksByParentId.get(row.id)?.length ? getEffectiveStatus(row) : row.status;
+      return eff === "Concluído em Atraso";
+    }).map(r => r.id);
+    let justificationLatestByTask = new Map<string, { status: string }>();
+    if (lateTaskIds.length > 0) {
+      const ph = lateTaskIds.map(() => "?").join(",");
+      const jRows = db.prepare(`
+        SELECT task_id, status FROM task_justifications
+        WHERE task_id IN (${ph}) AND tenant_id = ?
+        ORDER BY created_at DESC
+      `).all(...lateTaskIds, req.user!.tenantId) as { task_id: string; status: string }[];
+      for (const j of jRows) {
+        if (!justificationLatestByTask.has(j.task_id)) justificationLatestByTask.set(j.task_id, j);
+      }
+    }
     const taskList = rows.map(row => {
       const evidences = evidencesByTask.get(row.id) || [];
-      const overrides: { status?: string; parentTaskAtividade?: string; subtaskCount?: number } = {};
+      const overrides: { status?: string; parentTaskAtividade?: string; subtaskCount?: number; justificationStatus?: JustificationStatus } = {};
       if (row.parent_task_id && parentAtividadeById[row.parent_task_id]) {
         overrides.parentTaskAtividade = parentAtividadeById[row.parent_task_id];
       }
+      let effStatus: string;
       if (!row.parent_task_id) {
         const subs = subtasksByParentId.get(row.id);
-        if (subs?.length) overrides.status = getEffectiveStatus(row);
+        if (subs?.length) {
+          effStatus = getEffectiveStatus(row);
+          overrides.status = effStatus;
+        } else effStatus = row.status;
         overrides.subtaskCount = subs?.length ?? 0;
+      } else effStatus = row.status;
+      if (effStatus === "Concluído em Atraso") {
+        if (row.justification_blocked) overrides.justificationStatus = "blocked";
+        else {
+          const latest = justificationLatestByTask.get(row.id);
+          if (!latest) overrides.justificationStatus = "none";
+          else if (latest.status === "pending") overrides.justificationStatus = "pending";
+          else if (latest.status === "approved") overrides.justificationStatus = "approved";
+          else overrides.justificationStatus = "refused";
+        }
       }
       return rowToTask(row, evidences, emailToName, overrides);
     });

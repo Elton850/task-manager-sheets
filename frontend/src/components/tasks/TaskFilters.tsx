@@ -95,7 +95,7 @@ export default function TaskFilters({ filters, lookups, users, onChange, onClear
 
       {/* Expanded filters */}
       {expanded && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
           <Select
             value={filters.status}
             onChange={e => onChange({ status: e.target.value })}

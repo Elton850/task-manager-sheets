@@ -11,6 +11,7 @@ import { apiAuthContext, blockWritesWhenImpersonating } from "./middleware/auth"
 
 import authRoutes from "./routes/auth";
 import taskRoutes from "./routes/tasks";
+import justificationRoutes from "./routes/justifications";
 import userRoutes from "./routes/users";
 import lookupRoutes from "./routes/lookups";
 import ruleRoutes from "./routes/rules";
@@ -121,6 +122,7 @@ app.use("/api/auth/request-reset", resetLimiter);
 app.use("/api", apiLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/tasks", taskRoutes);
+app.use("/api/justifications", justificationRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/lookups", lookupRoutes);
 app.use("/api/rules", ruleRoutes);

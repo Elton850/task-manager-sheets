@@ -184,20 +184,20 @@ export default function TasksPage() {
   };
 
   return (
-    <div className="space-y-4 max-w-full">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-500">
+    <div className="space-y-4 max-w-full min-w-0 overflow-x-hidden">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm text-slate-500 truncate">
             {new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
           </p>
           {!canCreateTask && (
-            <p className="text-xs text-amber-700 mt-1 inline-flex items-center gap-1">
-              <Lock size={12} />
-              {createBlockedReason}
+            <p className="text-xs text-amber-700 mt-1 inline-flex items-center gap-1 flex-wrap">
+              <Lock size={12} className="shrink-0" />
+              <span className="break-words">{createBlockedReason}</span>
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
           <Button variant="ghost" size="sm" onClick={load} icon={<RefreshCw size={14} />}>
             Atualizar
           </Button>

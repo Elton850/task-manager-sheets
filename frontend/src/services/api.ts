@@ -9,6 +9,8 @@ import type {
   Rule,
   TaskFilters,
   TaskEvidence,
+  TaskJustification,
+  JustificationMineItem,
 } from "@/types";
 
 let csrfToken = "";
@@ -23,7 +25,7 @@ export function clearCsrfToken(): void {
   csrfToken = "";
 }
 
-const RESERVED_SEGMENTS = new Set(["login", "calendar", "tasks", "performance", "users", "admin", "empresa", "empresas"]);
+const RESERVED_SEGMENTS = new Set(["login", "calendar", "tasks", "performance", "users", "admin", "empresa", "empresas", "justificativas"]);
 
 /**
  * Tenant no path tem prioridade: /empresax/login -> empresax.
@@ -196,6 +198,48 @@ export const tasksApi = {
   deleteEvidence: (id: string, evidenceId: string) =>
     del<{ ok: boolean; task: Task }>(`/tasks/${id}/evidences/${evidenceId}`),
 };
+
+export const justificationsApi = {
+  mine: (competenciaYm?: string) => {
+    const qs = competenciaYm ? `?competenciaYm=${encodeURIComponent(competenciaYm)}` : "";
+    return get<{ items: JustificationMineItem[] }>(`/justifications/mine${qs}`);
+  },
+  pending: () => get<{ items: PendingJustificationItem[] }>("/justifications/pending"),
+  approved: () => get<{ items: ApprovedJustificationItem[] }>("/justifications/approved"),
+  blocked: () => get<{ items: { taskId: string; atividade: string; responsavelNome: string; area: string; blockedAt: string | null; blockedBy: string | null }[] }>("/justifications/blocked"),
+  create: (data: { taskId: string; description: string }) =>
+    post<{ justification: TaskJustification }>("/justifications", data),
+  get: (id: string) => get<{ justification: TaskJustification }>(`/justifications/${id}`),
+  uploadEvidence: (id: string, file: { fileName: string; mimeType: string; contentBase64: string }) =>
+    post<{ evidence: { id: string; fileName: string; mimeType: string; fileSize: number; uploadedAt: string; downloadUrl: string } }>(`/justifications/${id}/evidences`, file),
+  deleteEvidence: (justificationId: string, evidenceId: string) =>
+    del<{ ok: boolean }>(`/justifications/${justificationId}/evidences/${evidenceId}`),
+  review: (id: string, action: "approve" | "refuse" | "refuse_and_block", reviewComment?: string) =>
+    put<{ justification: TaskJustification }>(`/justifications/${id}/review`, { action, reviewComment }),
+  unblockTask: (taskId: string) => put<{ ok: boolean }>(`/justifications/task/${taskId}/unblock`),
+};
+
+export interface PendingJustificationItem {
+  id: string;
+  taskId: string;
+  description: string;
+  status: string;
+  createdAt: string;
+  createdBy: string;
+  task: { atividade: string; responsavelEmail: string; responsavelNome: string; prazo: string | null; realizado: string | null; area: string };
+}
+
+export interface ApprovedJustificationItem {
+  id: string;
+  taskId: string;
+  description: string;
+  status: string;
+  createdAt: string;
+  createdBy: string;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  task: { atividade: string; responsavelEmail: string; responsavelNome: string; prazo: string | null; realizado: string | null; area: string };
+}
 
 export const usersApi = {
   list: () => get<{ users: User[] }>("/users"),

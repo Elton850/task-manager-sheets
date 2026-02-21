@@ -11,10 +11,25 @@
     font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
   }
 
   body {
     @apply bg-slate-100 text-slate-900;
+    width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+    margin: 0;
+  }
+
+  /* App root deve preencher a viewport para evitar faixas escuras em mobile */
+  #root {
+    width: 100%;
+    min-height: 100%;
+    min-width: 0;
+    overflow-x: hidden;
   }
 
   /* Scrollbar */

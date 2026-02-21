@@ -16,6 +16,7 @@ const UsersPage = lazy(() => import("@/pages/UsersPage"));
 const AdminPage = lazy(() => import("@/pages/AdminPage"));
 const CompanyPage = lazy(() => import("@/pages/CompanyPage"));
 const CompaniesPage = lazy(() => import("@/pages/CompaniesPage"));
+const JustificationsPage = lazy(() => import("@/pages/JustificationsPage"));
 
 setTenantSlug(getTenantSlugFromUrl());
 
@@ -80,6 +81,7 @@ const appRouteChildren = (
     >
       <Route index element={<Navigate to="calendar" replace />} />
       <Route path="tasks" element={<Suspense fallback={<LoadingSpinner fullPage />}><TasksPage /></Suspense>} />
+      <Route path="justificativas" element={<Suspense fallback={<LoadingSpinner fullPage />}><JustificationsPage /></Suspense>} />
       <Route path="calendar" element={<Suspense fallback={<LoadingSpinner fullPage />}><CalendarPage /></Suspense>} />
       <Route path="performance" element={<Suspense fallback={<LoadingSpinner fullPage />}><PerformancePage /></Suspense>} />
       <Route path="users" element={<AdminLeaderRoute><Suspense fallback={<LoadingSpinner fullPage />}><UsersPage /></Suspense></AdminLeaderRoute>} />

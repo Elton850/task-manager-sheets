@@ -104,7 +104,7 @@ function TaskTableInner({ tasks, loading, onEdit, onDelete, onDuplicate, onMarkC
   };
 
   return (
-    <div className="overflow-x-auto -mx-4 sm:mx-0 rounded-xl border border-slate-200/80 bg-white shadow-sm">
+    <div className="overflow-x-auto overflow-y-hidden -mx-4 sm:mx-0 rounded-xl border border-slate-200/80 bg-white shadow-sm touch-pan-x">
       <table className="min-w-full" role="table" aria-label="Lista de tarefas">
         <thead>
           <tr className="border-b border-slate-200 bg-slate-50/90">
@@ -206,6 +206,28 @@ function TaskTableInner({ tasks, loading, onEdit, onDelete, onDuplicate, onMarkC
                   <Badge variant={getStatusVariant(task.status)} size="sm">
                     {task.status}
                   </Badge>
+                  {task.status === "Concluído em Atraso" && task.justificationStatus && (
+                    <span
+                      className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                        task.justificationStatus === "approved"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : task.justificationStatus === "pending"
+                            ? "bg-amber-100 text-amber-700"
+                            : task.justificationStatus === "refused"
+                              ? "bg-rose-100 text-rose-700"
+                              : task.justificationStatus === "blocked"
+                                ? "bg-slate-200 text-slate-600"
+                                : "bg-slate-100 text-slate-600"
+                      }`}
+                      title="Status da justificativa"
+                    >
+                      {task.justificationStatus === "none" && "Sem justificativa"}
+                      {task.justificationStatus === "pending" && "Em aprovação"}
+                      {task.justificationStatus === "approved" && "Justificativa aprovada"}
+                      {task.justificationStatus === "refused" && "Justificativa recusada"}
+                      {task.justificationStatus === "blocked" && "Justificativa bloqueada"}
+                    </span>
+                  )}
                   {task.realizado && (
                     <div
                       className="text-xs text-slate-500 flex items-center justify-center gap-1 tabular-nums"

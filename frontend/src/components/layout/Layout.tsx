@@ -17,29 +17,29 @@ export default function Layout() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden">
+    <div className="flex h-screen w-full min-w-0 max-w-full bg-slate-100 overflow-hidden">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(o => !o)} />
 
-      <div className="flex-1 flex flex-col lg:ml-64 min-w-0 transition-all duration-300">
+      <div className="flex-1 flex flex-col min-w-0 w-full max-w-full lg:ml-64 transition-all duration-300">
         {isImpersonating && user && (
-          <div className="flex items-center justify-between gap-3 px-4 py-2 bg-amber-100 border-b border-amber-300 text-amber-900 text-sm">
-            <span className="flex items-center gap-2">
-              <Eye size={16} />
-              Visualizando como <strong>{user.nome}</strong> (somente leitura)
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 px-3 py-2 sm:px-4 bg-amber-100 border-b border-amber-300 text-amber-900 text-sm">
+            <span className="flex items-center gap-2 min-w-0 truncate">
+              <Eye size={16} className="shrink-0" />
+              <span className="truncate">Visualizando como <strong>{user.nome}</strong> (somente leitura)</span>
             </span>
             <Button
               variant="outline"
               size="sm"
               onClick={handleStopImpersonation}
               icon={<ArrowLeft size={14} />}
-              className="border-amber-400 text-amber-800 hover:bg-amber-200"
+              className="border-amber-400 text-amber-800 hover:bg-amber-200 shrink-0 w-full sm:w-auto"
             >
               Voltar à minha conta
             </Button>
           </div>
         )}
         <Header onMenuToggle={() => setSidebarOpen(o => !o)} />
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6 bg-gradient-to-b from-slate-100 to-white">
+        <main className="flex-1 min-h-0 min-w-0 w-full overflow-y-auto overflow-x-hidden p-4 lg:p-6 bg-gradient-to-b from-slate-100 to-white">
           <Outlet />
         </main>
       </div>

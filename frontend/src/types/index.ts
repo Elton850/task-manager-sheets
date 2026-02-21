@@ -79,7 +79,31 @@ export interface Task {
   parentTaskAtividade?: string;
   /** Número de subtarefas (apenas em tarefas principais). */
   subtaskCount?: number;
+  /** Status da justificativa (apenas para tarefas Concluído em Atraso). */
+  justificationStatus?: JustificationStatus;
   evidences?: TaskEvidence[];
+}
+
+export type JustificationStatus = "none" | "pending" | "approved" | "refused" | "blocked";
+
+export interface TaskJustification {
+  id: string;
+  taskId: string;
+  description: string;
+  status: string;
+  createdAt: string;
+  createdBy: string;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  reviewComment?: string | null;
+  task?: { id: string; atividade: string; responsavelNome: string; prazo: string | null; realizado: string | null };
+  evidences?: { id: string; fileName: string; mimeType: string; fileSize: number; uploadedAt: string; downloadUrl: string }[];
+}
+
+export interface JustificationMineItem {
+  task: Pick<Task, "id" | "atividade" | "responsavelNome" | "area" | "prazo" | "realizado" | "status" | "competenciaYm">;
+  justificationStatus: JustificationStatus;
+  justification: TaskJustification | null;
 }
 
 export interface TaskEvidence {

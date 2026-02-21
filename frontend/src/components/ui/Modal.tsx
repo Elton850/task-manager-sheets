@@ -50,10 +50,10 @@ export default function Modal({ open, onClose, title, subtitle, children, footer
       aria-describedby={subtitle ? "modal-subtitle" : undefined}
     >
       <div
-        className={`relative w-full ${sizes[size]} bg-white border border-slate-200 rounded-xl shadow-2xl animate-slide-in flex flex-col max-h-[90vh]`}
+        className={`relative w-full ${sizes[size]} bg-white border border-slate-200 rounded-xl shadow-2xl animate-slide-in flex flex-col max-h-[85vh] sm:max-h-[90vh] mx-1 sm:mx-0`}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between p-5 border-b border-slate-200 flex-shrink-0">
+        <div className="flex items-start justify-between p-4 sm:p-5 border-b border-slate-200 flex-shrink-0 gap-2">
           <div>
             <h2 id="modal-title" className="text-base font-semibold text-slate-900">{title}</h2>
             {subtitle && <p id="modal-subtitle" className="text-sm text-slate-500 mt-0.5">{subtitle}</p>}
@@ -69,9 +69,9 @@ export default function Modal({ open, onClose, title, subtitle, children, footer
           </Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 sm:p-5">{children}</div>
 
-        {footer && <div className="flex justify-end gap-3 p-5 border-t border-slate-200 flex-shrink-0">{footer}</div>}
+        {footer && <div className="flex flex-wrap justify-end gap-2 sm:gap-3 p-4 sm:p-5 border-t border-slate-200 flex-shrink-0">{footer}</div>}
       </div>
     </div>
   );

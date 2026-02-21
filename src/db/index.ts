@@ -188,5 +188,64 @@ try {
   // ignorar
 }
 
+// Migração: justificativas de conclusão em atraso (bloqueio na tarefa)
+try {
+  const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+  if (!taskCols.some((c) => c.name === "justification_blocked")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN justification_blocked INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!taskCols.some((c) => c.name === "justification_blocked_at")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN justification_blocked_at TEXT");
+  }
+  if (!taskCols.some((c) => c.name === "justification_blocked_by")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN justification_blocked_by TEXT");
+  }
+} catch {
+  // ignorar
+}
+
+// Tabela: justificativas (uma por solicitação; pode haver histórico por tarefa)
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_justifications (
+      id           TEXT PRIMARY KEY,
+      tenant_id    TEXT NOT NULL REFERENCES tenants(id),
+      task_id      TEXT NOT NULL REFERENCES tasks(id),
+      description  TEXT NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','refused')),
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      created_by   TEXT NOT NULL,
+      reviewed_at  TEXT,
+      reviewed_by  TEXT,
+      review_comment TEXT
+    )
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_justifications_tenant ON task_justifications(tenant_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_justifications_task ON task_justifications(task_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_justifications_status ON task_justifications(tenant_id, status)");
+} catch {
+  // ignorar
+}
+
+// Tabela: evidências de justificativa (regras iguais às de tarefa; máx 1 por justificativa em lógica da API)
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS justification_evidences (
+      id              TEXT PRIMARY KEY,
+      tenant_id       TEXT NOT NULL REFERENCES tenants(id),
+      justification_id TEXT NOT NULL REFERENCES task_justifications(id),
+      file_name       TEXT NOT NULL,
+      file_path       TEXT NOT NULL,
+      mime_type       TEXT NOT NULL,
+      file_size       INTEGER NOT NULL DEFAULT 0,
+      uploaded_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      uploaded_by     TEXT NOT NULL
+    )
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_just_evidence_just ON justification_evidences(justification_id)");
+} catch {
+  // ignorar
+}
+
 export default db;
 export { SYSTEM_TENANT_ID };

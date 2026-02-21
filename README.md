@@ -1,5 +1,7 @@
 # Task Manager
 
+**Repositório:** [github.com/Elton850/Task-Manager](https://github.com/Elton850/Task-Manager)
+
 Sistema de gerenciamento de tarefas com multi-tenant, calendário, desempenho por área e controle de acesso por perfis (USER, LEADER, ADMIN).
 
 ---
@@ -55,8 +57,10 @@ task-manager/
 
 ## Requisitos
 
-- **Node.js 18+** (com SQLite nativo)
+- **Node.js 22.5+** (necessário para SQLite nativo do Node)
 - npm ou yarn
+
+Para um guia passo a passo de recuperação do zero (clone, env, seed), veja [RECUPERACAO.md](RECUPERACAO.md).
 
 ---
 
@@ -64,8 +68,8 @@ task-manager/
 
 ```bash
 # 1. Clonar e entrar no projeto
-git clone https://github.com/elton850/task-manager-sheets.git task-manager
-cd task-manager
+git clone https://github.com/Elton850/Task-Manager.git
+cd Task-Manager
 
 # 2. Instalar dependências
 npm install
