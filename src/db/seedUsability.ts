@@ -238,7 +238,7 @@ async function seedUsability() {
 
 /**
  * Remove somente os dados criados pela seed de usabilidade (tenants empresa-alpha e empresa-beta).
- * Ordem: task_evidences → tasks → rules → lookups → login_events → users → tenants.
+ * Ordem: justification_evidences → task_justifications → task_evidences → tasks → rules → lookups → login_events → users → tenants.
  */
 function cleanUsabilitySeed(): void {
   console.log("🧹 Apagando somente dados da seed de usabilidade...\n");
@@ -257,6 +257,10 @@ function cleanUsabilitySeed(): void {
     for (const tenantId of ids) {
       const slugRow = db.prepare("SELECT slug FROM tenants WHERE id = ?").get(tenantId) as { slug: string } | undefined;
       const slug = slugRow?.slug ?? tenantId;
+      db.prepare(
+        "DELETE FROM justification_evidences WHERE justification_id IN (SELECT id FROM task_justifications WHERE tenant_id = ?)"
+      ).run(tenantId);
+      db.prepare("DELETE FROM task_justifications WHERE tenant_id = ?").run(tenantId);
       db.prepare("DELETE FROM task_evidences WHERE task_id IN (SELECT id FROM tasks WHERE tenant_id = ?)").run(tenantId);
       db.prepare("DELETE FROM tasks WHERE tenant_id = ?").run(tenantId);
       db.prepare("DELETE FROM rules WHERE tenant_id = ?").run(tenantId);

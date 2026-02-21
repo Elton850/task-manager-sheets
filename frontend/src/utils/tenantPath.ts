@@ -8,6 +8,9 @@ const RESERVED_SEGMENTS = new Set([
   "admin",
   "empresa",
   "empresas",
+  "justificativas",
+  "sistema",
+  "logs-acesso",
 ]);
 
 /**

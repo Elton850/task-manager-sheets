@@ -29,7 +29,10 @@ export default function LoginPage() {
   const [resetInfo, setResetInfo] = useState<{ firstAccess: boolean } | null>(null);
   const [resetEmailSent, setResetEmailSent] = useState(false);
 
-  if (!loading && user) return <Navigate to={`${basePath}/calendar`} replace />;
+  if (!loading && user) {
+    const isSystemAdmin = tenant?.slug === "system" && user.role === "ADMIN";
+    return <Navigate to={isSystemAdmin ? `${basePath}/sistema` : `${basePath}/calendar`} replace />;
+  }
 
   const set = (field: string, value: string) => setForm(f => ({ ...f, [field]: value }));
 

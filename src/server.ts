@@ -16,6 +16,7 @@ import userRoutes from "./routes/users";
 import lookupRoutes from "./routes/lookups";
 import ruleRoutes from "./routes/rules";
 import tenantRoutes from "./routes/tenants";
+import systemRoutes from "./routes/system";
 
 // Initialize DB schema on startup
 import "./db";
@@ -127,6 +128,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/lookups", lookupRoutes);
 app.use("/api/rules", ruleRoutes);
 app.use("/api/tenants", tenantRoutes);
+app.use("/api/system", systemRoutes);
 
 // ── Serve React frontend in production ───────────────────────────────────────
 if (IS_PROD) {

@@ -10,9 +10,14 @@
     "seed": "ts-node src/db/seed.ts",
     "seed:usability": "ts-node src/db/seedUsability.ts",
     "seed:usability:clean": "ts-node src/db/seedUsability.ts --clean",
+    "seed:local": "ts-node src/db/seedLocal.ts",
+    "seed:local:clean": "ts-node src/db/seedLocal.ts --clean",
     "frontend:install": "cd frontend && npm install",
     "frontend:dev": "cd frontend && npm run dev",
     "frontend:build": "cd frontend && npm run build",
+    "env:dev": "node -e \"require('fs').copyFileSync('.env.development', '.env')\"",
+    "env:staging": "node -e \"require('fs').copyFileSync('.env.staging', '.env')\"",
+    "env:prod": "node -e \"require('fs').copyFileSync('.env.production', '.env')\"",
     "dev:all": "concurrently \"npm run dev\" \"npm run frontend:dev\"",
     "test": "jest",
     "test:security": "jest --testPathPattern=security"
@@ -46,3 +51,4 @@
     "typescript": "^5.5.4"
   }
 }
+

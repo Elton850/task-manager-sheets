@@ -25,7 +25,7 @@ export function clearCsrfToken(): void {
   csrfToken = "";
 }
 
-const RESERVED_SEGMENTS = new Set(["login", "calendar", "tasks", "performance", "users", "admin", "empresa", "empresas", "justificativas"]);
+const RESERVED_SEGMENTS = new Set(["login", "calendar", "tasks", "performance", "users", "admin", "empresa", "empresas", "justificativas", "sistema", "logs-acesso"]);
 
 /**
  * Tenant no path tem prioridade: /empresax/login -> empresax.
@@ -341,4 +341,26 @@ export const tenantApi = {
     post<{ ok: boolean }>(`/tenants/${tenantId}/logo`, body),
   /** Remove logo da empresa (Admin Mestre). */
   removeLogo: (tenantId: string) => del<{ ok: boolean }>(`/tenants/${tenantId}/logo`),
+};
+
+/** APIs apenas para administrador do sistema (tenant "system"). */
+export const systemApi = {
+  stats: () =>
+    get<{
+      tenantsCount: number;
+      usersCount: number;
+      tasksCount: number;
+      recentLogins: { loggedAt: string; tenantSlug: string; tenantName: string; userEmail: string; userName: string }[];
+    }>("/system/stats"),
+  loginLogs: (params?: { from?: string; to?: string; tenant?: string; limit?: number }) => {
+    const search = new URLSearchParams();
+    if (params?.from) search.set("from", params.from);
+    if (params?.to) search.set("to", params.to);
+    if (params?.tenant) search.set("tenant", params.tenant);
+    if (params?.limit != null) search.set("limit", String(params.limit));
+    const qs = search.toString();
+    return get<{ items: { loggedAt: string; tenantSlug: string; tenantName: string; userEmail: string; userName: string }[] }>(
+      `/system/login-logs${qs ? `?${qs}` : ""}`
+    );
+  },
 };

@@ -11,6 +11,7 @@ import {
   LogOut,
   ChevronLeft,
   FileText,
+  ScrollText,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import Badge, { getRoleVariant } from "@/components/ui/Badge";
@@ -44,12 +45,14 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { to: "/calendar", icon: <Calendar size={18} />, label: "Calendário" },
-  { to: "/tasks", icon: <LayoutDashboard size={18} />, label: "Tarefas" },
-  { to: "/justificativas", icon: <FileText size={18} />, label: "Justificativas", roles: ["USER", "LEADER", "ADMIN"] },
-  { to: "/performance", icon: <BarChart2 size={18} />, label: "Performance" },
+  { to: "/calendar", icon: <Calendar size={18} />, label: "Calendário", notSystem: true },
+  { to: "/tasks", icon: <LayoutDashboard size={18} />, label: "Tarefas", notSystem: true },
+  { to: "/justificativas", icon: <FileText size={18} />, label: "Justificativas", roles: ["USER", "LEADER", "ADMIN"], notSystem: true },
+  { to: "/performance", icon: <BarChart2 size={18} />, label: "Performance", notSystem: true },
+  { to: "/sistema", icon: <LayoutDashboard size={18} />, label: "Visão geral", roles: ["ADMIN"], systemOnly: true },
   { to: "/users", icon: <Users size={18} />, label: "Usuários", roles: ["ADMIN", "LEADER"] },
   { to: "/empresas", icon: <Building2 size={18} />, label: "Cadastro de empresas", roles: ["ADMIN"], systemOnly: true },
+  { to: "/logs-acesso", icon: <ScrollText size={18} />, label: "Logs de acesso", roles: ["ADMIN"], systemOnly: true },
   { to: "/empresa", icon: <Building2 size={18} />, label: "Empresa", roles: ["ADMIN"], notSystem: true },
   { to: "/admin", icon: <Settings size={18} />, label: "Configurações", roles: ["ADMIN", "LEADER"] },
 ];

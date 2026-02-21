@@ -17,14 +17,18 @@ const AdminPage = lazy(() => import("@/pages/AdminPage"));
 const CompanyPage = lazy(() => import("@/pages/CompanyPage"));
 const CompaniesPage = lazy(() => import("@/pages/CompaniesPage"));
 const JustificationsPage = lazy(() => import("@/pages/JustificationsPage"));
+const SystemDashboardPage = lazy(() => import("@/pages/SystemDashboardPage"));
+const SystemLogsPage = lazy(() => import("@/pages/SystemLogsPage"));
 
 setTenantSlug(getTenantSlugFromUrl());
 
 function IndexRedirect() {
   const basePath = useBasePath();
-  const { user, loading } = useAuth();
+  const { user, tenant, loading } = useAuth();
   if (loading) return <LoadingSpinner fullPage />;
-  return <Navigate to={user ? `${basePath}/calendar` : `${basePath}/login`} replace />;
+  if (!user) return <Navigate to={`${basePath}/login`} replace />;
+  const isSystemAdmin = tenant?.slug === "system" && user.role === "ADMIN";
+  return <Navigate to={isSystemAdmin ? `${basePath}/sistema` : `${basePath}/calendar`} replace />;
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -62,9 +66,18 @@ function SystemAdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function LayoutIndexRedirect() {
+  const basePath = useBasePath();
+  const { user, tenant } = useAuth();
+  const isSystemAdmin = tenant?.slug === "system" && user?.role === "ADMIN";
+  return <Navigate to={isSystemAdmin ? `${basePath}/sistema` : `${basePath}/calendar`} replace />;
+}
+
 function NotFoundRedirect() {
   const basePath = useBasePath();
-  return <Navigate to={`${basePath}/calendar`} replace />;
+  const { user, tenant } = useAuth();
+  const isSystemAdmin = tenant?.slug === "system" && user?.role === "ADMIN";
+  return <Navigate to={isSystemAdmin ? `${basePath}/sistema` : `${basePath}/calendar`} replace />;
 }
 
 /** Rotas para sistema (/) e para tenant (/:tenant) — mesmo conteúdo, basePath vem do pathname em SyncTenantAndBasePath. */
@@ -79,13 +92,15 @@ const appRouteChildren = (
         </ProtectedRoute>
       }
     >
-      <Route index element={<Navigate to="calendar" replace />} />
+      <Route index element={<LayoutIndexRedirect />} />
       <Route path="tasks" element={<Suspense fallback={<LoadingSpinner fullPage />}><TasksPage /></Suspense>} />
       <Route path="justificativas" element={<Suspense fallback={<LoadingSpinner fullPage />}><JustificationsPage /></Suspense>} />
       <Route path="calendar" element={<Suspense fallback={<LoadingSpinner fullPage />}><CalendarPage /></Suspense>} />
       <Route path="performance" element={<Suspense fallback={<LoadingSpinner fullPage />}><PerformancePage /></Suspense>} />
       <Route path="users" element={<AdminLeaderRoute><Suspense fallback={<LoadingSpinner fullPage />}><UsersPage /></Suspense></AdminLeaderRoute>} />
       <Route path="admin" element={<AdminLeaderRoute><Suspense fallback={<LoadingSpinner fullPage />}><AdminPage /></Suspense></AdminLeaderRoute>} />
+      <Route path="sistema" element={<SystemAdminRoute><Suspense fallback={<LoadingSpinner fullPage />}><SystemDashboardPage /></Suspense></SystemAdminRoute>} />
+      <Route path="logs-acesso" element={<SystemAdminRoute><Suspense fallback={<LoadingSpinner fullPage />}><SystemLogsPage /></Suspense></SystemAdminRoute>} />
       <Route path="empresas" element={<SystemAdminRoute><Suspense fallback={<LoadingSpinner fullPage />}><CompaniesPage /></Suspense></SystemAdminRoute>} />
       <Route path="empresa" element={<AdminRoute><Suspense fallback={<LoadingSpinner fullPage />}><CompanyPage /></Suspense></AdminRoute>} />
     </Route>

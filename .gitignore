@@ -31,10 +31,14 @@ Thumbs.db
 npm-debug.log*
 .cache/
 
-# Arquivos legados / temporários
+# Arquivos legados / temporarios
 *.tmp
 code task-manager-sheets*
 order table task-manager-sheets*
 performance.html
 performance-page.js
 performance.css
+.env.development
+.env.staging
+.env.production
+

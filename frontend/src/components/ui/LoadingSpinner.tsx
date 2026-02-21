@@ -19,7 +19,7 @@ export default function LoadingSpinner({ size = "md", className = "", fullPage =
 
   if (fullPage) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm z-50">
+      <div className="fixed inset-0 flex items-center justify-center bg-slate-100/95 backdrop-blur-sm z-50">
         {spinner}
       </div>
     );
