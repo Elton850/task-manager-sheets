@@ -73,6 +73,12 @@ export interface Task {
   realizadoPor?: string;
   /** Nome para exibição: concluído por. */
   realizadoPorNome?: string;
+  /** ID da tarefa principal (quando esta tarefa é uma sub tarefa). */
+  parentTaskId?: string;
+  /** Descrição da tarefa principal, para exibir "Parte de: X". */
+  parentTaskAtividade?: string;
+  /** Sub tarefas (apenas quando esta é uma tarefa principal e a lista foi enriquecida). */
+  subtasks?: Task[];
   evidences?: TaskEvidence[];
 }
 

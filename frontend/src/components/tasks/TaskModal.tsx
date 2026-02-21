@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Paperclip, Upload, Trash2, ExternalLink, Download, FileText } from "lucide-react";
+import { Paperclip, Upload, Trash2, ExternalLink, Download, FileText, Layers, Plus } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -23,6 +23,8 @@ interface TaskModalProps {
   onClose: () => void;
   onSave: (data: Partial<Task>) => Promise<Task | void>;
   onTaskChange?: (task: Task) => void;
+  /** Chamado quando uma sub tarefa é criada (Leader/Admin na tarefa principal) */
+  onSubtaskCreated?: (subtask: Task) => void;
   loading?: boolean;
 }
 
@@ -58,6 +60,7 @@ export default function TaskModal({
   onClose,
   onSave,
   onTaskChange,
+  onSubtaskCreated,
   loading,
 }: TaskModalProps) {
   const { user, tenant } = useAuth();
@@ -84,6 +87,9 @@ export default function TaskModal({
   const [deleteEvidenceTarget, setDeleteEvidenceTarget] = useState<TaskEvidence | null>(null);
   const [deletingEvidence, setDeletingEvidence] = useState(false);
   const [pendingCompletePayload, setPendingCompletePayload] = useState<Partial<Task> | null>(null);
+  const [subAtividade, setSubAtividade] = useState("");
+  const [subResponsavelEmail, setSubResponsavelEmail] = useState("");
+  const [addingSubtask, setAddingSubtask] = useState(false);
 
   useEffect(() => {
     if (!open) setPendingCompletePayload(null);
@@ -104,6 +110,8 @@ export default function TaskModal({
       setErrors({});
       setSelectedEvidence(null);
       setEvidences(task?.evidences || []);
+      setSubAtividade("");
+      setSubResponsavelEmail("");
     }
   }, [open, task, user, initialData]);
 
@@ -363,6 +371,80 @@ export default function TaskModal({
           error={errors.observacoes}
           hint={form.observacoes ? `${form.observacoes.length}/1000 caracteres` : undefined}
         />
+
+        {isEdit && !task?.parentTaskId && (user?.role === "LEADER" || user?.role === "ADMIN") && (
+          <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <Layers size={16} className="text-violet-600" />
+              Sub tarefas
+            </div>
+            <p className="text-xs text-slate-600">
+              A tarefa principal só será concluída quando você marcar como concluída <strong>e</strong> todas as sub tarefas estiverem concluídas pelos envolvidos.
+            </p>
+            {(task?.subtasks?.length ?? 0) > 0 && (
+              <ul className="space-y-2">
+                {task?.subtasks?.map(st => (
+                  <li
+                    key={st.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-slate-800 truncate">{st.atividade}</p>
+                      <p className="text-xs text-slate-500">
+                        {st.responsavelNome} · <Badge variant={getStatusVariant(st.status)} size="sm" className="inline">{st.status}</Badge>
+                      </p>
+                    </div>
+                    <span className="text-xs text-slate-400 shrink-0">Na lista do envolvido</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                placeholder="Descrição da sub tarefa"
+                value={subAtividade}
+                onChange={e => setSubAtividade(e.target.value)}
+                className="flex-1"
+              />
+              <Select
+                value={subResponsavelEmail}
+                onChange={e => setSubResponsavelEmail(e.target.value)}
+                options={userOptions}
+                placeholder="Envolvido"
+                className="sm:w-48"
+              />
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                icon={<Plus size={14} />}
+                loading={addingSubtask}
+                disabled={!subAtividade.trim() || !subResponsavelEmail}
+                onClick={async () => {
+                  if (!task?.id || !subAtividade.trim() || !subResponsavelEmail) return;
+                  setAddingSubtask(true);
+                  try {
+                    const { task: created } = await tasksApi.create({
+                      parentTaskId: task.id,
+                      atividade: subAtividade.trim(),
+                      responsavelEmail: subResponsavelEmail,
+                    });
+                    onSubtaskCreated?.(created);
+                    setSubAtividade("");
+                    setSubResponsavelEmail("");
+                    toast("Sub tarefa criada. Ela aparecerá na lista do envolvido.", "success");
+                  } catch (err) {
+                    toast(err instanceof Error ? err.message : "Erro ao criar sub tarefa", "error");
+                  } finally {
+                    setAddingSubtask(false);
+                  }
+                }}
+              >
+                Adicionar
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">

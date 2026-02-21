@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import db from "../db";
 import { requireAuth } from "../middleware/auth";
-import { mustString, optStr, nowIso, calcStatus } from "../utils";
+import { mustString, optStr, nowIso, calcStatus, todayStr } from "../utils";
 
 const router = Router();
 router.use(requireAuth);
@@ -31,6 +31,7 @@ interface TaskDbRow {
   deleted_by: string | null;
   prazo_modified_by?: string | null;
   realizado_por?: string | null;
+  parent_task_id?: string | null;
 }
 
 interface EvidenceDbRow {
@@ -69,10 +70,25 @@ function getNamesForEmails(tenantId: string, emails: string[]): Record<string, s
   return map;
 }
 
+/** Status da tarefa principal quando ela tem sub tarefas: concluída só quando principal + todas as sub concluídas */
+function calcMainTaskStatus(
+  main: { prazo: string | null; realizado: string | null },
+  subtasks: { realizado: string | null }[]
+): string {
+  const allSubtasksDone = subtasks.length > 0 && subtasks.every(s => !!(s.realizado && String(s.realizado).trim()));
+  if (!main.realizado || !allSubtasksDone) {
+    const p = main.prazo?.trim() || "";
+    if (!p) return "Em Andamento";
+    return todayStr() > p ? "Em Atraso" : "Em Andamento";
+  }
+  return calcStatus(main.prazo, main.realizado);
+}
+
 function rowToTask(
   row: TaskDbRow,
   evidences: EvidenceDbRow[] = [],
-  emailToName?: Record<string, string>
+  emailToName?: Record<string, string>,
+  parentTaskAtividade?: string | null
 ) {
   const prazoModifiedBy = row.prazo_modified_by ?? null;
   const realizadoPor = row.realizado_por ?? null;
@@ -98,6 +114,8 @@ function rowToTask(
     prazoModifiedByName: (prazoModifiedBy && emailToName?.[prazoModifiedBy]) || undefined,
     realizadoPor: realizadoPor || undefined,
     realizadoPorNome: (realizadoPor && emailToName?.[realizadoPor]) || undefined,
+    parentTaskId: row.parent_task_id ?? undefined,
+    parentTaskAtividade: parentTaskAtividade ?? undefined,
     evidences: evidences.map(e => toEvidence(e, row.id)),
   };
 }
@@ -187,7 +205,29 @@ router.get("/", (req: Request, res: Response): void => {
     }
     const emailToName = getNamesForEmails(req.user!.tenantId, auditEmails);
 
-    res.json({ tasks: rows.map(row => rowToTask(row, evidencesByTask.get(row.id) || [], emailToName)) });
+    const idToRow = new Map(rows.map(r => [r.id, r]));
+    const tasksList = rows.map(row =>
+      rowToTask(
+        row,
+        evidencesByTask.get(row.id) || [],
+        emailToName,
+        row.parent_task_id ? (idToRow.get(row.parent_task_id)?.atividade ?? null) : undefined
+      )
+    );
+
+    // Recalcular status das tarefas principais que têm sub tarefas
+    for (const task of tasksList) {
+      if (task.parentTaskId) continue;
+      const subtasks = tasksList.filter(t => t.parentTaskId === task.id);
+      if (subtasks.length > 0) {
+        task.status = calcMainTaskStatus(
+          { prazo: task.prazo || null, realizado: task.realizado || null },
+          subtasks.map(s => ({ realizado: s.realizado || null }))
+        );
+      }
+    }
+
+    res.json({ tasks: tasksList });
   } catch {
     res.status(500).json({ error: "Erro ao buscar tarefas.", code: "INTERNAL" });
   }
@@ -199,6 +239,73 @@ router.post("/", (req: Request, res: Response): void => {
     const user = req.user!;
     const tenantId = req.tenantId!;
     const body = req.body;
+
+    const parentTaskId = optStr(body.parentTaskId) || null;
+    const isSubtask = !!parentTaskId;
+
+    if (isSubtask) {
+      // Apenas LEADER ou ADMIN podem criar sub tarefas
+      if (user.role !== "ADMIN" && user.role !== "LEADER") {
+        res.status(403).json({ error: "Apenas líder ou administrador podem criar sub tarefas.", code: "FORBIDDEN" });
+        return;
+      }
+      const parent = db.prepare(
+        "SELECT * FROM tasks WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL AND (parent_task_id IS NULL OR parent_task_id = '')"
+      ).get(parentTaskId, tenantId) as TaskDbRow | undefined;
+      if (!parent) {
+        res.status(400).json({ error: "Tarefa principal não encontrada ou não é uma tarefa principal.", code: "PARENT_NOT_FOUND" });
+        return;
+      }
+      if (!canManageTask(user, parent)) {
+        res.status(403).json({ error: "Sem permissão para adicionar sub tarefa a esta tarefa.", code: "FORBIDDEN" });
+        return;
+      }
+
+      const atividade = mustString(body.atividade, "Descrição da sub tarefa");
+      if (atividade.length > 200) {
+        res.status(400).json({ error: "Descrição muito longa (máx 200 chars).", code: "VALIDATION" });
+        return;
+      }
+      const responsavelEmail = mustString(body.responsavelEmail, "Envolvido");
+      const respUser = db.prepare("SELECT nome, area FROM users WHERE tenant_id = ? AND email = ?")
+        .get(tenantId, responsavelEmail) as { nome: string; area: string } | undefined;
+      if (!respUser) {
+        res.status(400).json({ error: "Envolvido não encontrado.", code: "USER_NOT_FOUND" });
+        return;
+      }
+      if (user.role === "LEADER" && respUser.area !== user.area) {
+        res.status(403).json({ error: "LEADER só pode atribuir sub tarefas a usuários da sua área.", code: "FORBIDDEN" });
+        return;
+      }
+
+      const observacoes = optStr(body.observacoes);
+      if (observacoes.length > 1000) {
+        res.status(400).json({ error: "Observações muito longas (máx 1000 chars).", code: "VALIDATION" });
+        return;
+      }
+
+      const id = uuidv4();
+      const now = nowIso();
+      const status = "Em Andamento";
+
+      db.prepare(`
+        INSERT INTO tasks (id, tenant_id, parent_task_id, competencia_ym, recorrencia, tipo, atividade,
+          responsavel_email, responsavel_nome, area, prazo, realizado, status, observacoes,
+          created_at, created_by, updated_at, updated_by, prazo_modified_by, realizado_por)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL)
+      `).run(
+        id, tenantId, parentTaskId,
+        parent.competencia_ym, parent.recorrencia, "Sub tarefa", atividade,
+        responsavelEmail, respUser.nome, parent.area,
+        parent.prazo, status, observacoes || null,
+        now, user.email, now, user.email
+      );
+
+      const created = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as TaskDbRow;
+      const emailToName = getNamesForEmails(tenantId, [created.prazo_modified_by, created.realizado_por].filter(Boolean) as string[]);
+      res.status(201).json({ task: rowToTask(created, [], emailToName, parent.atividade) });
+      return;
+    }
 
     const atividade = mustString(body.atividade, "Atividade");
     if (atividade.length > 200) {
@@ -387,7 +494,28 @@ router.put("/:id", (req: Request, res: Response): void => {
       .all(id) as EvidenceDbRow[];
     const auditEmails = [updated.prazo_modified_by, updated.realizado_por].filter(Boolean) as string[];
     const emailToName = getNamesForEmails(tenantId, auditEmails);
-    res.json({ task: rowToTask(updated, evidences, emailToName) });
+    let taskPayload = rowToTask(updated, evidences, emailToName);
+    if (!updated.parent_task_id) {
+      const subtaskRows = db.prepare("SELECT * FROM tasks WHERE parent_task_id = ? AND tenant_id = ? AND deleted_at IS NULL")
+        .all(id, tenantId) as TaskDbRow[];
+      if (subtaskRows.length > 0) {
+        taskPayload.status = calcMainTaskStatus(
+          { prazo: updated.prazo, realizado: updated.realizado },
+          subtaskRows.map(s => ({ realizado: s.realizado }))
+        );
+        const subIds = subtaskRows.map(s => s.id);
+        const placeholders = subIds.map(() => "?").join(",");
+        const evRows = subIds.length > 0 ? db.prepare(`SELECT * FROM task_evidences WHERE task_id IN (${placeholders})`).all(...subIds) as EvidenceDbRow[] : [];
+        const evidencesBySub = new Map<string, EvidenceDbRow[]>();
+        for (const e of evRows) {
+          const list = evidencesBySub.get(e.task_id) || [];
+          list.push(e);
+          evidencesBySub.set(e.task_id, list);
+        }
+        (taskPayload as Record<string, unknown>).subtasks = subtaskRows.map(s => rowToTask(s, evidencesBySub.get(s.id) || [], emailToName, updated.atividade));
+      }
+    }
+    res.json({ task: taskPayload });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erro ao atualizar tarefa.";
     res.status(400).json({ error: msg, code: "VALIDATION" });
@@ -419,10 +547,17 @@ router.delete("/:id", (req: Request, res: Response): void => {
       return;
     }
 
+    const now = nowIso();
+    if (!task.parent_task_id) {
+      db.prepare(`
+        UPDATE tasks SET deleted_at = ?, deleted_by = ?
+        WHERE parent_task_id = ? AND tenant_id = ?
+      `).run(now, user.email, id, tenantId);
+    }
     db.prepare(`
       UPDATE tasks SET deleted_at = ?, deleted_by = ?
       WHERE id = ? AND tenant_id = ?
-    `).run(nowIso(), user.email, id, tenantId);
+    `).run(now, user.email, id, tenantId);
 
     res.json({ ok: true });
   } catch {
@@ -447,6 +582,10 @@ router.post("/:id/duplicate", (req: Request, res: Response): void => {
 
     if (!task) {
       res.status(404).json({ error: "Tarefa não encontrada.", code: "NOT_FOUND" });
+      return;
+    }
+    if (task.parent_task_id) {
+      res.status(400).json({ error: "Só é possível duplicar a tarefa principal, não sub tarefas.", code: "SUBTASK_NO_DUPLICATE" });
       return;
     }
 

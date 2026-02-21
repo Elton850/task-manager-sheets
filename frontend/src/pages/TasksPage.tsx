@@ -262,7 +262,10 @@ export default function TasksPage() {
           tasks={filteredTasks}
           loading={loading}
           onEdit={task => {
-            setEditTask(task);
+            setEditTask({
+              ...task,
+              subtasks: filteredTasks.filter(t => t.parentTaskId === task.id),
+            });
             setModalOpen(true);
           }}
           onDelete={task => setDeleteTarget(task)}
@@ -285,6 +288,10 @@ export default function TasksPage() {
         onTaskChange={updatedTask => {
           setTasks(prev => prev.map(t => (t.id === updatedTask.id ? updatedTask : t)));
           setEditTask(prev => (prev && prev.id === updatedTask.id ? updatedTask : prev));
+        }}
+        onSubtaskCreated={subtask => {
+          setTasks(prev => [...prev, subtask]);
+          setEditTask(prev => (prev ? { ...prev, subtasks: [...(prev.subtasks || []), subtask] } : null));
         }}
         loading={saving}
       />

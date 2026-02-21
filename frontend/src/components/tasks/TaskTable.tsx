@@ -133,6 +133,18 @@ function TaskTableInner({ tasks, loading, onEdit, onDelete, onDuplicate, onMarkC
               </td>
               <td className="px-4 py-4 align-middle">
                 <div className="min-w-0 flex flex-col gap-1.5">
+                  {task.parentTaskId && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-md px-1.5 py-0.5" title="Sub tarefa vinculada a uma tarefa principal">
+                        Sub tarefa
+                      </span>
+                      {task.parentTaskAtividade && (
+                        <span className="text-xs text-slate-500 truncate max-w-[180px]" title={`Parte de: ${task.parentTaskAtividade}`}>
+                          Parte de: {task.parentTaskAtividade}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-start justify-between gap-3 min-w-0">
                     <p className="text-sm font-medium text-slate-800 truncate flex-1 min-w-0 leading-snug" title={task.atividade}>
                       {task.atividade}
@@ -213,7 +225,7 @@ function TaskTableInner({ tasks, loading, onEdit, onDelete, onDuplicate, onMarkC
                       )}
                     </button>
                   )}
-                  {canDuplicate && onDuplicate && (
+                  {canDuplicate && onDuplicate && !task.parentTaskId && (
                     <Button
                       variant="ghost"
                       size="sm"

@@ -308,7 +308,7 @@ export default function CalendarPage() {
               createBlockedReason={createBlockedReason}
               onClose={() => setSelectedDay(null)}
               onCreateTask={() => openCreateForDay(selectedDay)}
-              onEditTask={task => setEditTask(task)}
+              onEditTask={task => setEditTask({ ...task, subtasks: allTasks.filter(t => t.parentTaskId === task.id) })}
               onMarkComplete={task => setCompleteTarget(task)}
               canMarkComplete={canMarkComplete}
             />
@@ -328,7 +328,7 @@ export default function CalendarPage() {
                 <div className="flex items-start justify-between gap-2">
                   <button
                     type="button"
-                    onClick={() => setEditTask(task)}
+                    onClick={() => setEditTask({ ...task, subtasks: allTasks.filter(t => t.parentTaskId === task.id) })}
                     className="text-left flex-1 min-w-0"
                   >
                     <p className="text-xs font-medium text-slate-800 truncate">{task.atividade}</p>
@@ -388,6 +388,10 @@ export default function CalendarPage() {
           }}
           onSave={handleSave}
           onTaskChange={upsertTask}
+          onSubtaskCreated={subtask => {
+            setAllTasks(prev => [...prev, subtask]);
+            setEditTask(prev => (prev ? { ...prev, subtasks: [...(prev.subtasks || []), subtask] } : null));
+          }}
           loading={saving}
         />
       )}
